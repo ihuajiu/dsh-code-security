@@ -1,0 +1,12 @@
+# dependencies
+node_modules/
+
+# logs & temp
+*.log
+.tmp/
+.DS_Store
+Thumbs.db
+
+# editors
+.vscode/
+.idea/

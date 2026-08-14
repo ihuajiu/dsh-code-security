@@ -1,0 +1,9 @@
+{
+  "name": "codex-security",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "description": "DSH agent-preset plugin wrapping the @openai/codex-security CLI: security scan, findings, and scan-comparison tools.",
+  "license": "Apache-2.0"
+}

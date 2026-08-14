@@ -1,0 +1,58 @@
+# Install the openai-code-security DSH plugin project:
+#   1. agent preset  -> ~/.dsh/.agent-presets/codex-security (skills + scan tools)
+#   2. security gate -> web profile as a pnpm dependency + a cordis.patch.yml row
+# Idempotent: re-running replaces the previous copies.
+$ErrorActionPreference = 'Stop'
+
+$src = Split-Path -Parent $MyInvocation.MyCommand.Path
+$dsh = Join-Path $env:USERPROFILE '.dsh'
+
+# ── 1. agent preset ─────────────────────────────────────────────────────────
+$presetDest = Join-Path $dsh '.agent-presets\codex-security'
+Write-Host "Installing codex-security preset to $presetDest" -ForegroundColor Cyan
+New-Item -ItemType Directory -Path $presetDest -Force | Out-Null
+Get-ChildItem $src -Force | Where-Object { $_.Name -ne 'gate' -and $_.Name -ne 'install.ps1' -and $_.Name -ne 'install.sh' } |
+  ForEach-Object { Copy-Item -Path $_.FullName -Destination $presetDest -Recurse -Force }
+
+# ── 2. security gate into the web profile ───────────────────────────────────
+$profileDir = Join-Path $dsh 'profiles\web'
+if (Test-Path (Join-Path $profileDir 'package.json')) {
+  Write-Host "Installing openai-code-security-gate into profile $profileDir" -ForegroundColor Cyan
+  Push-Location $profileDir
+  try {
+    & 'dsh' plugin --profile web add (Join-Path $src 'gate')
+    if ($LASTEXITCODE -ne 0) { throw "dsh plugin add failed with exit code $LASTEXITCODE" }
+  } finally {
+    Pop-Location
+  }
+
+  $patch = Join-Path $profileDir 'cordis.patch.yml'
+  $row = @(
+    '- insert:',
+    '    - id: codex-security-gate',
+    '      name: openai-code-security-gate',
+    '      config:',
+    '        scanTimeoutMs: 900000'
+  ) -join "`n"
+  $content = (Get-Content $patch -Raw -ErrorAction SilentlyContinue)
+  if ($null -eq $content) { $content = '' }
+  if ($content -match 'codex-security-gate') {
+    Write-Host 'gate row already present in cordis.patch.yml' -ForegroundColor Yellow
+  } elseif ($content.Trim() -eq '[]' -or $content.Trim() -eq '') {
+    Set-Content -Path $patch -Value $row -Encoding UTF8
+    Write-Host "wrote gate row to $patch" -ForegroundColor Green
+  } else {
+    if (-not $content.EndsWith("`n")) { Add-Content -Path $patch -Value '' }
+    Add-Content -Path $patch -Value $row
+    Write-Host "appended gate row to $patch" -ForegroundColor Green
+  }
+} else {
+  Write-Host 'web profile not found — skip gate install (preset installed only).' -ForegroundColor Yellow
+}
+
+Write-Host ''
+Write-Host 'Done. Next steps:' -ForegroundColor Green
+Write-Host '  1. Restart dsh web so the gate loads (composition changes apply at boot).'
+Write-Host '  2. New DSH session -> pick the "代码安全模式" preset (id: codex-security) for skills + model-based audits.'
+Write-Host '  3. The gate auto-audits newly installed plugins with the harness model (no auth); watch <DSH_HOME>/codex-security/summary.json.'
+Write-Host '  4. Optional: for OpenAI Codex Security CLI scans, run `npx @openai/codex-security login` (or set OPENAI_API_KEY).'

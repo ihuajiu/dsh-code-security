@@ -1,0 +1,84 @@
+# openai-code-security-gate
+
+DSH 宿主门禁插件：**新插件安装时自动用本会话的大模型审计（免认证），并支持指定插件批量扫描。**
+
+- 监控两类"插件安装"表面（轮询，默认 60s + 启动时立即一次）：
+  1. `~/.dsh/.agent-presets/` 下新增/变更的 **agent preset**（用户预设法）
+  2. `~/.dsh/profiles/*/` 下各 profile 的 **package.json 依赖、bundle 列表、node_modules 顶层包**（`dsh plugin` 装的插件）
+- 新插件出现 → 采集插件源码（有界：跳过 node_modules/.git/二进制/超限文件）→ 用宿主
+  `llm` 服务（与会话同一 provider/model，零新增认证）生成安全审计报告，写入
+  `reports/<key>-<ts>/report.md`；自动跳过已审计且未变化的插件，版本/路径变化会重扫。
+- 可选 CLI 引擎（`engine: 'cli'`）：执行 `npx --yes @openai/codex-security scan <根目录>`，
+  需 OpenAI 侧认证。
+- 状态与报告持久化在 `<DSH_HOME>/codex-security/`：
+  - `state.json` — 每个插件的审计历史
+  - `summary.json` — 每插件最新状态（供人工/UI 查看）
+  - `reports/<key>-<ts>/` — `report.md`（模型审计报告）+ `runner.log`
+- 注册两个全局模型工具：
+  - `codex_security_scan_plugins` — 批量审计（标识：预设 id / 包名 / 绝对路径，可 `force` 重扫）
+  - `codex_security_scan_status` — 查看所有已知插件的审计状态
+- **GUI 面板**：设置页新增「安全审计」分区（`settings.section`），展示每插件状态/最近
+  审计/备注，支持打开报告与「重新审计」。数据经门禁注册的 HTTP 端点提供：
+  - `GET /codex-security/status.json` — 每插件最新状态
+  - `GET /codex-security/report?id=<报告目录>` — 报告 markdown（仅允许已记录的报告目录）
+  - `POST /codex-security/scan` — 触发指定插件审计 `{ "plugins": ["preset:x", ...] }`
+
+零依赖（仅 Node 内置模块 + 一个手写 client bundle）；消费宿主服务时全部
+`ctx.get()` 防御式访问，`apply()` 不抛错。
+
+## 安装
+
+```powershell
+# 在项目根目录（Windows）
+.\install.ps1
+```
+
+或手动：
+
+```bash
+dsh plugin --profile web add <本目录>
+```
+
+然后往 `~/.dsh/profiles/web/cordis.patch.yml` 追加（插入新行必须用 `insert:` 补丁语法）：
+
+```yaml
+- insert:
+    - id: codex-security-gate
+      name: openai-code-security-gate
+      config:
+        scanTimeoutMs: 900000
+```
+
+（`sandboxMode: danger-full-access` 仅 `engine: 'cli'` 时需要——宿主级 shell 在本机
+Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要它。）
+组合改动在 DSH 重启后生效（补丁不会在当前进程热重载）。
+
+## 配置（patch 行的 config）
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `autoScan` | `true` | 是否自动扫描新插件 |
+| `scanOnBoot` | `true` | 首次运行（无 state）时是否扫描现存插件 |
+| `scanSystemPresets` | `false` | 是否扫描出厂预设（standard/code/cordis/minimal 等 system trust 预设） |
+| `engine` | `llm` | `llm` = 宿主模型审计（免认证）；`cli` = @openai/codex-security CLI（需其自身认证） |
+| `provider` / `model` | 宿主默认路由 | llm 引擎的模型路由覆盖（默认取 `agentDefaultModel`，即会话同款） |
+| `intervalMs` | `60000` | 轮询间隔 |
+| `ignorePrefixes` | `["@deepseek-ai/"]` | 按包名前缀忽略（出厂底座） |
+| `ignoreIds` | `[]` | 按预设 id / 包名精确忽略 |
+| `cliCommand` | `npx --yes @openai/codex-security` | CLI 引擎的调用 |
+| `stateDir` | `<DSH_HOME>/codex-security` | 状态/报告目录 |
+| `scanTimeoutMs` | `900000` | CLI 引擎超时（15 分钟） |
+| `maxHarvestChars` | `400000` | llm 引擎源码采集字符预算 |
+| `maxFileBytes` | `65536` | llm 引擎单文件上限（超出跳过） |
+| `maxOutputTokens` | `8000` | llm 引擎输出 token 预算（审计提示较大，预留报告空间） |
+| `reasoningEffort` | `off` | 关闭模型推理（推理会吃光输出预算，导致只有推理没有结论）；需要推理可设 `high`/`max` |
+| `llmTimeoutMs` | `240000` | llm 调用超时（4 分钟），防扫描卡 `running` |
+| `maxParallel` | `2` | 并发审计数 |
+| `sandboxMode` | 继承执行器默认 | 仅 CLI 引擎需要；本机建议 `danger-full-access` |
+
+## 前置条件
+
+- **默认（llm 引擎）**：无需任何外部认证；使用宿主 `llm` 服务（同会话模型路由，如
+  deepseek-official / deepseek-v4-flash）。模型每次审计会读取目标插件源码。
+- 可选（cli 引擎）：`npx @openai/codex-security login` 或 `OPENAI_API_KEY`/`CODEX_API_KEY`。
+- 审计会读取目标插件全部源码并交给本地模型；请在可信环境中使用。

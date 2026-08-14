@@ -1,0 +1,2 @@
+name: 代码安全模式
+description: 标准编码 Agent，并附带 OpenAI Codex Security 的安全扫描技能（security-scan、diff-scan、triage、fix、threat-model 等）与 codex_security_* 扫描工具。

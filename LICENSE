@@ -1,0 +1,25 @@
+Apache License 2.0
+==================
+
+This project is licensed under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0). You may obtain a copy of the
+License at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+
+NOTICE
+------
+
+The `bundled/` directory is copied verbatim from the upstream
+[openai/codex-security](https://github.com/openai/codex-security) project
+(version 0.1.20, `_bundled_plugin`), Copyright OpenAI, also licensed under
+Apache-2.0. It contains the Codex Security workflow skills, references,
+schemas, examples, scripts, and MCP server runtime.
+
+All other code in this repository (the DSH agent preset composition, the
+`gate/` host plugin, the `plugins/` preset tool plugin, the `skills/` DSH
+adapter, and the install scripts) is original work licensed under Apache-2.0.
