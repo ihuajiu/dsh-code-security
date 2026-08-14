@@ -54,7 +54,7 @@ export function apply(ctx, config = {}) {
     sandboxMode: config.sandboxMode, // undefined = executor default (cli engine only)
     maxHarvestChars: config.maxHarvestChars ?? 400000,
     maxFileBytes: config.maxFileBytes ?? 65536,
-    maxOutputTokens: config.maxOutputTokens ?? 8000,
+    maxOutputTokens: config.maxOutputTokens ?? 32000,
     llmTimeoutMs: config.llmTimeoutMs ?? 240000,
     tickWatchdogMs: config.tickWatchdogMs ?? 180000,
     // DeepSeek reasoning models burn the output budget on reasoning and then
@@ -66,6 +66,16 @@ export function apply(ctx, config = {}) {
 
   const statePath = join(cfg.stateDir, 'state.json');
   const summaryPath = join(cfg.stateDir, 'summary.json');
+
+  // Ensure the state dir + a summary exist from the moment the gate mounts,
+  // so the settings panel and status endpoint always have a surface even
+  // before the first poll tick completes.
+  try {
+    if (!existsSync(statePath)) saveState(loadState());
+    if (!existsSync(summaryPath)) writeSummary(loadState());
+  } catch {
+    /* best-effort */
+  }
 
   // ── tiny helpers ──────────────────────────────────────────────────────────
   const quote = (value) => {
@@ -419,7 +429,7 @@ export function apply(ctx, config = {}) {
 
   /** Collect a bounded, text-only view of a plugin's source files for the llm engine. */
   function harvestFiles(root) {
-    const skipDirs = new Set(['node_modules', '.git', '.hg', '.svn', 'dist', 'build', 'out', '.next', '__pycache__', 'coverage', '.dsh']);
+    const skipDirs = new Set(['node_modules', '.git', '.hg', '.svn', 'dist', 'build', 'out', '.next', '__pycache__', 'coverage', '.dsh', 'bundled']);
     const out = [];
     let total = 0;
     const walk = (dir) => {
@@ -685,7 +695,7 @@ export function apply(ctx, config = {}) {
     res.setHeader('content-type', 'application/json; charset=utf-8');
     res.end(JSON.stringify(payload));
   };
-  const summaryPayload = () => {
+  const summaryPayload = async () => {
     const state = loadState();
     const payload = { updatedAt: nowIso(), plugins: {} };
     for (const [key, entry] of Object.entries(state.plugins)) {
@@ -701,6 +711,29 @@ export function apply(ctx, config = {}) {
         note: last && last.status !== 'completed' ? (last.note ?? null) : null,
       };
     }
+    // Resilient fallback: if nothing has been recorded yet (e.g. the boot tick
+    // never ran in this process), serve a LIVE discovery view so the panel
+    // always shows the plugin list instead of an empty state.
+    if (Object.keys(payload.plugins).length === 0) {
+      try {
+        const found = await discoverPlugins();
+        for (const info of found.values()) {
+          if (isIgnored(info)) continue;
+          payload.plugins[info.key] = {
+            id: info.id,
+            kind: info.kind,
+            root: info.root,
+            version: info.version,
+            status: 'never',
+            lastScanAt: null,
+            reportDir: null,
+            note: null,
+          };
+        }
+      } catch {
+        /* live discovery is best-effort */
+      }
+    }
     return payload;
   };
   function registerWebRoutes() {
@@ -711,7 +744,7 @@ export function apply(ctx, config = {}) {
       webServer.register({
         kind: 'exact',
         path: '/codex-security/status.json',
-        handler: (_req, res) => sendJson(res, summaryPayload()),
+        handler: async (_req, res) => sendJson(res, await summaryPayload()),
       });
       webServer.register({
         kind: 'exact',
