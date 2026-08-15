@@ -36,15 +36,20 @@ if [ -f "$profile_dir/package.json" ]; then
   # bundle row would collide with it.
   if [ -f "$patch" ]; then
     expected=$'- insert:\n    - id: dsh-security-gate\n      name: dsh-security-gate\n      config:\n        scanTimeoutMs: 900000'
+    matches=$(mktemp)
+    grep -n '^- insert:$' "$patch" 2>/dev/null > "$matches" || true
     start=""
-    while IFS=: read -r num rest; do
+    while IFS= read -r line <&3; do
+      num=${line%%:*}
+      rest=${line#*:}
       [ "$rest" = "- insert:" ] || continue
       next=$((num + 1))
       nextline=$(sed -n "${next}p" "$patch")
       case "$nextline" in
         '    - id: dsh-security-gate'*) start="$num"; break ;;
       esac
-    done < <(grep -n '^- insert:$' "$patch" 2>/dev/null || true)
+    done 3< "$matches"
+    rm -f "$matches"
     if [ -n "$start" ]; then
       end=$((start + 1))
       total=$(wc -l < "$patch")
@@ -60,9 +65,16 @@ if [ -f "$profile_dir/package.json" ]; then
       if [ "$block" = "$expected" ]; then
         sed -i.bak "${start},${end}d" "$patch"
         rm -f "$patch.bak"
-        leftover=$(sed '/^[[:space:]]*$/d;/^#/d' "$patch" | tr -d '[:space:]')
-        if [ -z "$leftover" ] || [ "$leftover" = "[]" ]; then
-          printf '[]\n' > "$patch"
+        # If only comments and/or a stale `[]` remain, normalize to a bare
+        # `[]` (preserving any template comments).
+        comments=$(sed -n '/^[[:space:]]*#/p' "$patch")
+        body=$(sed '/^[[:space:]]*#/d;/^[[:space:]]*$/d' "$patch" | tr -d '[:space:]')
+        if [ -z "$body" ] || [ "$body" = "[]" ]; then
+          if [ -n "$comments" ]; then
+            printf '%s\n' "$comments" '[]' > "$patch"
+          else
+            printf '[]\n' > "$patch"
+          fi
         fi
         echo "removed obsolete dsh-security-gate row from $patch (the bundle now activates it)"
       else

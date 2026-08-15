@@ -56,18 +56,23 @@
 
 - **预设**：把 `agent.cordis.yml`、`preset.yml`、`plugins/`、`skills/`、`bundled/`
   复制到 `~/.dsh/.agent-presets/dsh-security/`。
-- **门禁**：`dsh plugin --profile web add <项目>/gate`，然后往
-  `~/.dsh/profiles/web/cordis.patch.yml` 追加（插入新行必须用 `insert:` 补丁语法）：
+- **门禁**：`dsh plugin --profile web add <项目>/gate` 即可——`gate/package.json`
+  声明了 `dsh.bundle.patch`，`dsh plugin add` 会自动把 `dsh-security-gate` 加入
+  profile 的 `dsh.profile.bundles` 层并挂载，**无需再手动写 `cordis.patch.yml` 行**。
+  若此前已按旧方式安装过（`cordis.patch.yml` 里有 `dsh-security-gate` 的
+  `- insert:` 行），重新执行上面的 `dsh plugin add` 后需删除该行——直接重跑
+  `install.ps1` / `install.sh` 会自动移除（loader 拒绝重复 entry id，旧行必须清掉）。
+
+自定义门禁配置（如 `engine: 'cli'`、`sandboxMode: danger-full-access`）用 id 覆盖补丁
+（整体替换 config，需列全字段）追加到 `~/.dsh/profiles/web/cordis.patch.yml`：
 
   ```yaml
-  - insert:
-      - id: dsh-security-gate
-        name: dsh-security-gate
-        config:
-          scanTimeoutMs: 900000
+  - id: dsh-security-gate
+    config:
+      autoScan: true
+      engine: cli
+      sandboxMode: danger-full-access
   ```
-
-  （`sandboxMode: danger-full-access` 仅在改用 `engine: 'cli'` 时需要。）
 
 组合改动在 DSH 重启后生效（当前进程不会热重载补丁）。安装后：新建会话在预设选择器里
 选「安全审计模式」（id: `dsh-security`）获得技能与工具；门禁挂载后自动审计新插件

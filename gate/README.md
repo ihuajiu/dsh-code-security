@@ -34,20 +34,28 @@ DSH 宿主门禁插件：**新插件安装时自动用本会话的大模型审�
 .\install.ps1
 ```
 
-或手动：
+或手动（一条命令即可，无需再写 patch 行）：
 
 ```bash
 dsh plugin --profile web add <本目录>
 ```
 
-然后往 `~/.dsh/profiles/web/cordis.patch.yml` 追加（插入新行必须用 `insert:` 补丁语法）：
+`gate/package.json` 声明了 `dsh.bundle.patch: ./cordis.patch.yml`，`dsh plugin add`
+会自动把 `dsh-security-gate` 加入 profile 的 `dsh.profile.bundles` 层并由 bundle
+补丁插入插件行。**旧版手动安装**（`cordis.patch.yml` 里的 `- insert:` 行）需要删除该行：
+重跑 `install.ps1`/`install.sh` 会自动移除，否则会与 bundle 行产生重复 entry id
+（loader 直接报错）。
+
+自定义配置用 id 覆盖补丁（**整体替换** config，需列全字段）追加到
+`~/.dsh/profiles/web/cordis.patch.yml`：
 
 ```yaml
-- insert:
-    - id: dsh-security-gate
-      name: dsh-security-gate
-      config:
-        scanTimeoutMs: 900000
+- id: dsh-security-gate
+  config:
+    autoScan: true
+    scanOnBoot: false
+    engine: cli
+    sandboxMode: danger-full-access
 ```
 
 （`sandboxMode: danger-full-access` 仅 `engine: 'cli'` 时需要——宿主级 shell 在本机
