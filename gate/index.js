@@ -22,8 +22,8 @@
 // (`@dsh.so/dsh-security-gate`) to the profile's bundle layer automatically;
 // no manual cordis.patch.yml row is needed.
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
-import { join, dirname, relative, resolve as resolvePath, sep as pathSep } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync, realpathSync } from 'node:fs';
+import { join, dirname, relative, basename, resolve as resolvePath, sep as pathSep } from 'node:path';
 import { homedir } from 'node:os';
 
 export const name = 'dsh-security-gate';
@@ -33,6 +33,63 @@ const REPORT_FOOTER =
   '\n\n---\n\n' +
   '*本报告由 dsh-code-security（安全审计门禁）自动生成，仅供参考；结论请结合人工复核。*\n\n' +
   '*Powered by [dsh.so](https://dsh.so) · © 2026 dsh.so · Apache-2.0*\n';
+
+/**
+ * Canonicalize a path through symlinks: realpath the deepest EXISTING
+ * ancestor, then re-append the missing suffix. Falls back to the lexical path
+ * when nothing exists or a symlink loop is detected. Used so path containment
+ * cannot be bypassed by a symlink inside a plugin root pointing outside it,
+ * and so harvests never escape the plugin directory.
+ */
+function canonicalizePath(p) {
+  let probe = p;
+  const missing = [];
+  for (;;) {
+    try {
+      return realpathSync(probe) + (missing.length > 0 ? pathSep + missing.reverse().join(pathSep) : '');
+    } catch {
+      const parent = dirname(probe);
+      if (parent === probe) return p;
+      missing.push(basename(probe));
+      probe = parent;
+    }
+  }
+}
+
+/** Basename patterns of files that must never leave the host (F3). */
+const SECRET_FILE_PATTERNS = [
+  '.env', '.env.*', '.npmrc', '.pypirc', '.netrc',
+  '*.pem', '*.key', '*.p12', '*.pfx', '*.keystore', '*.jks',
+  'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519',
+  'credentials.json', 'credentials.yml', 'credentials.yaml',
+  'secrets.yml', 'secrets.yaml', '*.secret', '*.credentials',
+  'service-account*.json', 'client-secret*.json', 'oauth*.json',
+];
+/** Match one basename against secret patterns (mini-glob, `*` wildcard). */
+function matchesSecretName(name, patterns = SECRET_FILE_PATTERNS) {
+  const n = String(name);
+  for (const pat of patterns) {
+    const re = new RegExp('^' + pat.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i');
+    if (re.test(n)) return true;
+  }
+  return false;
+}
+
+/**
+ * Mask common inline secret values in harvested text before it is sent to the
+ * model provider (F3): cloud keys, private key blocks, and generic
+ * `password/secret/token/api_key = value` assignments.
+ */
+function redactSecrets(text) {
+  return String(text)
+    .replace(/AKIA[0-9A-Z]{16}/g, '[REDACTED:AWS_KEY]')
+    .replace(/\bsk-[A-Za-z0-9_-]{16,}\b/g, '[REDACTED:API_KEY]')
+    .replace(/\bghp_[A-Za-z0-9]{36}\b/g, '[REDACTED:GITHUB_TOKEN]')
+    .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, '[REDACTED:GITHUB_PAT]')
+    .replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, '[REDACTED:SLACK_TOKEN]')
+    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[REDACTED:PRIVATE_KEY]')
+    .replace(/(password|passwd|secret|token|api[_-]?key|access[_-]?key)\s*[:=]\s*["']?[A-Za-z0-9_\-./+=]{8,}/gi, '$1: [REDACTED]');
+}
 
 export function apply(ctx, config = {}) {
   const dshHome = config.dshHome ?? join(homedir(), '.dsh');
@@ -64,6 +121,13 @@ export function apply(ctx, config = {}) {
     sandboxMode: config.sandboxMode, // undefined = executor default (cli engine only)
     maxHarvestChars: config.maxHarvestChars ?? 400000,
     maxFileBytes: config.maxFileBytes ?? 65536,
+    // Secret hardening for the llm engine: never harvest secret-bearing files
+    // and redact inline secret values before the content reaches the provider.
+    harvestExcludePatterns: config.harvestExcludePatterns ?? SECRET_FILE_PATTERNS,
+    redactSecrets: config.redactSecrets !== false,
+    // Rate limit for unauthenticated localhost HTTP triggers (POST /scan).
+    scanRateLimit: config.scanRateLimit ?? 10,
+    scanRateWindowMs: config.scanRateWindowMs ?? 10000,
     maxOutputTokens: config.maxOutputTokens ?? 32000,
     llmTimeoutMs: config.llmTimeoutMs ?? 240000,
     tickWatchdogMs: config.tickWatchdogMs ?? 180000,
@@ -72,6 +136,15 @@ export function apply(ctx, config = {}) {
     // thinking so the whole budget goes to the report text.
     reasoningEffort: config.reasoningEffort ?? 'off',
   };
+  // Validate the CLI engine command (F4): it is admin config, but reject shell
+  // metacharacters so a misconfigured value cannot become an arbitrary command.
+  if (typeof cfg.cliCommand === 'string' && /[;&|`$<>()]/.test(cfg.cliCommand)) {
+    console.error(
+      '[dsh-security-gate] cliCommand contains shell metacharacters (' + JSON.stringify(cfg.cliCommand) +
+        ') — refusing it and falling back to the default.'
+    );
+    cfg.cliCommand = 'npx --yes @openai/codex-security';
+  }
   mkdirSync(cfg.stateDir, { recursive: true });
 
   const statePath = join(cfg.stateDir, 'state.json');
@@ -466,8 +539,24 @@ export function apply(ctx, config = {}) {
   /** Collect a bounded, text-only view of a plugin's source files for the llm engine. */
   function harvestFiles(root) {
     const skipDirs = new Set(['node_modules', '.git', '.hg', '.svn', 'dist', 'build', 'out', '.next', '__pycache__', 'coverage', '.dsh', 'bundled']);
+    const patterns = cfg.harvestExcludePatterns ?? SECRET_FILE_PATTERNS;
     const out = [];
     let total = 0;
+    // Canonicalize the harvest root once: a path-target that is itself a
+    // symlink must not pull in files from outside the plugin directory.
+    const canonRoot = canonicalizePath(resolvePath(root));
+    const keyed = (p) => (typeof process !== 'undefined' && process.platform === 'win32' ? p.toLowerCase() : p);
+    const outsideRoot = (full) => {
+      let canon;
+      try {
+        canon = canonicalizePath(full);
+      } catch {
+        return true;
+      }
+      const k = keyed(canon);
+      const r = keyed(canonRoot);
+      return k !== r && !k.startsWith(r + pathSep);
+    };
     const walk = (dir) => {
       let entries;
       try {
@@ -480,6 +569,11 @@ export function apply(ctx, config = {}) {
         if (entry.isDirectory()) {
           if (!skipDirs.has(entry.name) && !entry.name.startsWith('.')) walk(full);
         } else if (entry.isFile() && !entry.name.startsWith('.')) {
+          // Never harvest secret-bearing files (F3): .env / *.pem / id_rsa /
+          // credentials / secrets / service-account etc. stay on the host.
+          if (matchesSecretName(entry.name, patterns)) continue;
+          // A file that resolves outside the plugin root (symlinked) is skipped.
+          if (outsideRoot(full)) continue;
           let st;
           try {
             st = statSync(full);
@@ -494,7 +588,8 @@ export function apply(ctx, config = {}) {
             continue;
           }
           if (text.includes('\u0000')) continue; // binary
-          const rel = relative(root, full) || entry.name;
+          if (cfg.redactSecrets) text = redactSecrets(text);
+          const rel = relative(canonRoot, canonicalizePath(full)) || entry.name;
           if (total + text.length > cfg.maxHarvestChars) {
             out.push('\n[file omitted: ' + rel + ' exceeds harvest budget]');
             continue;
@@ -504,7 +599,7 @@ export function apply(ctx, config = {}) {
         }
       }
     };
-    walk(root);
+    walk(canonRoot);
     return out.join('\n');
   }
 
@@ -618,10 +713,10 @@ export function apply(ctx, config = {}) {
           out.push({ key: 'path:' + trimmed, kind: 'path', id: trimmed, root: trimmed });
           continue;
         }
-        const resolved = resolvePath(trimmed);
+        const resolved = canonicalizePath(resolvePath(trimmed));
         const keyed = (p) => (typeof process !== 'undefined' && process.platform === 'win32' ? p.toLowerCase() : p);
         const inside = [...found.values()].some((info) => {
-          const root = keyed(resolvePath(info.root));
+          const root = keyed(canonicalizePath(resolvePath(info.root)));
           return keyed(resolved) === root || keyed(resolved).startsWith(root + pathSep);
         });
         if (inside) {
@@ -729,7 +824,7 @@ export function apply(ctx, config = {}) {
         for (const entry of entries) {
           const last = entry.lastScan;
           lines.push(
-            entry.key + ' [' + entry.kind + '] ' + entry.root +
+            entry.key + ' [' + entry.kind + ']' +
               (entry.version ? ' v' + entry.version : '') +
               ' — ' + (last ? last.status + ' @ ' + last.at : 'never scanned')
           );
@@ -743,6 +838,7 @@ export function apply(ctx, config = {}) {
   // Registered directly (fiber owns disposal). If webServer is not available
   // yet at apply time, registerWebRoutes() is retried from the watcher tick.
   let routesRegistered = false;
+  const scanHits = []; // timestamps of recent POST /scan triggers (rate limit)
   const sendJson = (res, payload, status = 200) => {
     res.statusCode = status;
     res.setHeader('content-type', 'application/json; charset=utf-8');
@@ -845,6 +941,16 @@ export function apply(ctx, config = {}) {
         kind: 'exact',
         path: '/dsh-security/scan',
         handler: async (req, res) => {
+          // Rate limit (F1): the endpoint is unauthenticated on localhost, so
+          // bound how often scans can be triggered to avoid resource/billing
+          // exhaustion.
+          const now = Date.now();
+          while (scanHits.length > 0 && now - scanHits[0] > cfg.scanRateWindowMs) scanHits.shift();
+          if (scanHits.length >= cfg.scanRateLimit) {
+            sendJson(res, { ok: false, error: 'rate limited: too many scan triggers (max ' + cfg.scanRateLimit + ' per ' + cfg.scanRateWindowMs + 'ms)' }, 429);
+            return;
+          }
+          scanHits.push(now);
           let body = '';
           for await (const chunk of req) body += chunk;
           let plugins = [];
@@ -854,6 +960,10 @@ export function apply(ctx, config = {}) {
             /* invalid body -> no plugins */
           }
           if (!Array.isArray(plugins)) plugins = [];
+          if (plugins.length > 50) {
+            sendJson(res, { ok: false, error: 'too many plugins in one request (max 50)' }, 400);
+            return;
+          }
           const { targets, errors } = await resolveTargets(plugins);
           const started = [];
           for (const target of targets) {
