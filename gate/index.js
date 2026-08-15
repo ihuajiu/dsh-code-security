@@ -1313,7 +1313,8 @@ export function apply(ctx, config = {}) {
   let routesRegistered = false;
   // Per-bucket timestamp queues for localhost trigger rate limiting.
   // /clear is destructive, so it is rate-limited like /scan (audit finding 6).
-  const rateBuckets = { scan: [], clear: [] };
+  // /report is rate-limited too (F1/F8): reports embed harvested source.
+  const rateBuckets = { scan: [], clear: [], report: [] };
   function rateLimited(res, bucket) {
     const now = Date.now();
     const hits = rateBuckets[bucket];
@@ -1361,7 +1362,13 @@ export function apply(ctx, config = {}) {
         const canon = canonicalizePath(resolvePath(scan.reportDir));
         if (canon !== reportsRoot && !canon.startsWith(reportsRoot + pathSep)) continue;
         try {
-          rmSync(scan.reportDir, { recursive: true, force: true });
+          // Delete the CANONICAL path, not the raw scan.reportDir (audit
+          // finding F2): the containment check above resolved symlinks, but
+          // rmSync on the raw path would re-resolve it — a directory component
+          // swapped to a symlink between the check and the delete could then
+          // be followed outside the reports root. Deleting the already-canonical
+          // path keeps check and delete on the same resolved target.
+          rmSync(canon, { recursive: true, force: true });
         } catch {
           /* best-effort */
         }
@@ -1481,6 +1488,10 @@ export function apply(ctx, config = {}) {
             res.end('non-local request rejected');
             return;
           }
+          // Rate limit the report endpoint too (audit findings F1/F8): reports
+          // embed harvested source snippets, so a token holder must not be able
+          // to mass-download every report in a tight loop.
+          if (!rateLimited(res, 'report')) return;
           const parsed = new URL(req.url ?? '/', 'http://localhost');
           const id = parsed.searchParams.get('id') ?? '';
           const state = loadState();
