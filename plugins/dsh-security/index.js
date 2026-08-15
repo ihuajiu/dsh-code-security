@@ -440,13 +440,21 @@ export function apply(ctx, config = {}) {
 
   const bundledDirUrl = new URL('../../bundled/', import.meta.url);
   const bundledDir = fileURLToPath(bundledDirUrl);
-  // Load-time integrity check of the bundled payload scripts.
+  // Load-time integrity check of the bundled payload scripts. FAIL-CLOSED
+  // (audit finding F4): a tampered payload (hash mismatch, missing or extra
+  // file) must disable the plugin rather than merely warn — otherwise a local
+  // attacker could swap the bundled runtime (e.g. the MCP server payload) and
+  // have the agent execute it. The tools below verify integrity again when
+  // handing out payload paths, but the plugin itself must not load.
   const integrity = verifyPayloadIntegrity(bundledDirUrl);
-  if (!integrity.ok && ctx.logger) {
-    ctx.logger.warn(
-      `codex-security: bundled payload integrity check FAILED for ${integrity.failures.length} script(s): ` +
-        integrity.failures.join(', ')
-    );
+  if (!integrity.ok) {
+    if (ctx.logger) {
+      ctx.logger.error(
+        `codex-security: bundled payload integrity check FAILED for ${integrity.failures.length} file(s): ` +
+          integrity.failures.join(', ') + ' — refusing to enable the plugin (fail-closed). Reinstall the preset to restore the pristine payloads.'
+      );
+    }
+    return;
   }
 
   const tools = ctx.get('tools');
@@ -845,7 +853,15 @@ export function apply(ctx, config = {}) {
       // prompt-injected `findings list /home/user/.ssh` cannot read outside
       // the working directory. Flags and bare identifiers (scan ids, repo
       // names) pass through as shell literals.
-      const containToken = (token) => {
+      // Flags that TAKE A PATH VALUE (audit finding 3): the token right after
+      // a known path-taking flag must go through resolveTarget too — otherwise
+      // `scans logs --output-dir out` would pass a bare `out` unchecked, and
+      // the CLI could create/write it relative to a base outside the workdir.
+      const PATH_VALUE_FLAGS = new Set([
+        '--output-dir', '-o', '--scans-dir', '--export-dir', '--knowledge-base', '--scan-prompt-file',
+      ]);
+      const containToken = (token, nextIsPathValue) => {
+        if (nextIsPathValue) return quoteArg(resolveTarget(token, workdir, allowTargetsOutsideWorkdir), shell);
         if (token.startsWith('-')) return quoteArg(token, shell);
         const pathLike =
           token.startsWith('/') ||
@@ -865,7 +881,14 @@ export function apply(ctx, config = {}) {
         if (!pathLike) return quoteArg(token, shell);
         return quoteArg(resolveTarget(token, workdir, allowTargetsOutsideWorkdir), shell);
       };
-      const parts = [...cliPrefix, verb, ...tokens.slice(1).map(containToken)];
+      const rest = tokens.slice(1);
+      const parts = [...cliPrefix, verb];
+      for (let i = 0; i < rest.length; i++) {
+        const tok = rest[i];
+        const next = rest[i + 1];
+        const nextIsPathValue = next !== undefined && PATH_VALUE_FLAGS.has(tok);
+        parts.push(containToken(tok, nextIsPathValue));
+      }
       const result = await runCli(exec, parts, {
         timeoutMs: args.timeout_ms === undefined
           ? 120000
