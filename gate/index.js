@@ -555,13 +555,26 @@ export function apply(ctx, config = {}) {
       return { key: info.key, status: 'failed', reportDir: null, note: scan.note };
     }
     scan.reportDir = reportDir;
+    // ETA estimation: base it on this plugin's historical completed scans
+    // (average duration), else on the size of the harvested source. Gives an
+    // operator an immediate sense of how long the audit will take.
+    const finished = (entry.scans ?? []).filter((s) => s.status === 'completed' && typeof s.durationMs === 'number' && s.durationMs > 0);
+    let estimatedMs = null;
+    if (finished.length > 0) {
+      estimatedMs = Math.round(finished.reduce((sum, s) => sum + s.durationMs, 0) / finished.length);
+    }
+    scan.estimatedMs = estimatedMs;
+    scan.startedAt = scan.at;
     saveState(state);
 
+    const estText = estimatedMs !== null
+      ? ' estimated ' + Math.round(estimatedMs / 60000) + 'min' + (Math.round((estimatedMs % 60000) / 1000) > 0 ? ' ' + Math.round((estimatedMs % 60000) / 1000) + 's' : '') + ' (avg of ' + finished.length + ' past scans)'
+      : (cfg.engine === 'llm' ? ' estimated ' + Math.max(2, Math.round(harvestedChars(info) / 20000)) + 'min (by source size)' : '');
     console.log(
       '[dsh-security-gate] scan START ' + info.key + ' (' + info.kind + ')' +
       (cfg.engine === 'llm' ? ' engine=llm' : ' engine=cli') +
       (cfg.engine === 'llm' ? ' model=' + (cfg.model ?? 'auto') + ' via ' + (cfg.provider ?? 'default') : '') +
-      ' started=' + scan.at + ' report=' + reportDir
+      ' started=' + scan.at + estText + ' report=' + reportDir
     );
 
     if (cfg.engine === 'cli') {
@@ -569,10 +582,29 @@ export function apply(ctx, config = {}) {
     } else {
       await runScanLlm(info, scan, state, reportDir, { signal });
     }
+    // Record the actual duration so the NEXT scan of this plugin can show a
+    // history-based ETA.
+    try {
+      scan.durationMs = new Date(scan.at).getTime() >= 0
+        ? Date.now() - new Date(scan.at).getTime()
+        : 0;
+      if (scan.durationMs < 0) scan.durationMs = 0;
+    } catch {
+      /* best-effort */
+    }
     saveState(state);
     writeSummary(state);
-    console.log('[dsh-security-gate] scan ' + info.key + ' -> ' + scan.status + (scan.reportDir ? ' @ ' + scan.reportDir : ''));
+    console.log('[dsh-security-gate] scan ' + info.key + ' -> ' + scan.status + ' in ' + (scan.durationMs ?? 0) + 'ms' + (scan.reportDir ? ' @ ' + scan.reportDir : ''));
     return { key: info.key, status: scan.status, reportDir: scan.reportDir, note: scan.note };
+  }
+
+  /** Estimate harvested source size for ETA fallback (llm engine). */
+  function harvestedChars(info) {
+    try {
+      return harvestFiles(info.root).length;
+    } catch {
+      return 0;
+    }
   }
 
   /** CLI engine: shell out to the @openai/codex-security CLI (requires its own auth). */
@@ -1240,6 +1272,12 @@ export function apply(ctx, config = {}) {
         lastScanAt: last ? last.at : null,
         reportDir: last ? last.reportDir : null,
         note: last && last.status !== 'completed' ? (last.note ?? null) : null,
+        // Progress info for the panel: when a scan is running, when it
+        // started, the ETA estimate (history-based or null), and the last
+        // completed run's actual duration.
+        startedAt: last && last.status === 'running' ? (last.at ?? null) : null,
+        estimatedMs: last && last.status === 'running' ? (last.estimatedMs ?? null) : null,
+        durationMs: last && last.status === 'completed' ? (last.durationMs ?? null) : null,
       };
     }
     // Resilient fallback: if nothing has been recorded yet (e.g. the boot tick
@@ -1258,6 +1296,9 @@ export function apply(ctx, config = {}) {
             lastScanAt: null,
             reportDir: null,
             note: null,
+            startedAt: null,
+            estimatedMs: null,
+            durationMs: null,
           };
         }
       } catch {

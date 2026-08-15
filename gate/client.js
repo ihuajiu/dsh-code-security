@@ -442,6 +442,21 @@ window.__ModuleLoader__.load({
 				refresh();
 			}, [refresh]);
 
+			// Auto-refresh while any plugin is being audited: a long scan
+			// otherwise looks frozen. Poll every 15s; stop once nothing is
+			// running (the effect re-runs when `status` changes).
+			useEffect(function () {
+				var hasRunning = false;
+				if (status && status.plugins) {
+					for (var k in status.plugins) {
+						if (status.plugins[k] && status.plugins[k].status === "running") { hasRunning = true; break; }
+					}
+				}
+				if (!hasRunning) return;
+				var iv = setInterval(refresh, 15000);
+				return function () { clearInterval(iv); };
+			}, [status, refresh]);
+
 			var openReport = useCallback(function (key, dir) {
 				if (open && open.key === key) { setOpen(null); return; }
 				setOpen({ key: key, text: null });
@@ -583,6 +598,22 @@ window.__ModuleLoader__.load({
 				var meta = [];
 				meta.push("最近审计: " + fmtTime(p.lastScanAt));
 				if (p.kind === "package" && p.version) meta.push("v" + p.version);
+				// Progress/ETA feedback: running scans show elapsed + estimate;
+				// completed scans show the last actual duration.
+				if (st === "running") {
+					if (p.startedAt) {
+						var elapsedMin = Math.floor((Date.now() - new Date(p.startedAt).getTime()) / 60000);
+						meta.push("已运行 " + Math.max(0, elapsedMin) + " 分钟");
+					}
+					if (typeof p.estimatedMs === "number" && p.estimatedMs > 0) {
+						meta.push("预计共约 " + Math.max(1, Math.round(p.estimatedMs / 60000)) + " 分钟");
+					} else {
+						meta.push("预计 2-10 分钟（视模型与源码量）");
+					}
+				} else if (st === "completed" && typeof p.durationMs === "number" && p.durationMs > 0) {
+					var durMin = Math.round(p.durationMs / 60000);
+					meta.push("上次耗时 " + (durMin >= 1 ? durMin + " 分钟" : Math.max(1, Math.round(p.durationMs / 1000)) + " 秒"));
+				}
 
 				return react.createElement("div", {
 					key: e.key,
