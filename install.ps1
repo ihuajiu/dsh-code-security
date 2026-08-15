@@ -4,9 +4,49 @@
 #      gate/package.json makes `dsh plugin add` activate it as a profile bundle
 #      layer automatically (no manual cordis.patch.yml row needed).
 # Idempotent: re-running replaces the previous copies.
+#
+# Run from a project checkout, or piped as one command once the repository is
+# published:  irm <raw-install-url> | iex   (the script then clones the repo
+# itself and re-runs from the clone).
 $ErrorActionPreference = 'Stop'
 
-$src = Split-Path -Parent $MyInvocation.MyCommand.Path
+# Published repository for the piped-install path. Set
+# $env:DSH_CODE_SECURITY_REPO_URL to override.
+$repoUrl = if ($env:DSH_CODE_SECURITY_REPO_URL) { $env:DSH_CODE_SECURITY_REPO_URL } else { 'https://github.com/ihuajiu/dsh-code-security' }
+
+# Locate the project checkout this script lives in. Empty when piped
+# (`irm ... | iex`): only the script body arrives, without the project files.
+$scriptPath = $MyInvocation.MyCommand.Path
+$src = if ($scriptPath) { Split-Path -Parent $scriptPath } else { '' }
+$hasPayload = $src -and (Test-Path (Join-Path $src 'agent.cordis.yml')) -and (Test-Path (Join-Path $src 'gate'))
+
+if (-not $hasPayload) {
+  # Piped mode (or a bare copy of this script): fetch the project first, then
+  # re-run the installer from the clone so the preset payload and gate code are
+  # present.
+  if ($repoUrl -match '<owner>') {
+    Write-Error 'install.ps1 must be run from the project checkout, or set DSH_CODE_SECURITY_REPO_URL to the published repository URL.'
+    exit 1
+  }
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Write-Error 'git is required for the piped install — install git (https://git-scm.com) and retry.'
+    exit 1
+  }
+  $clone = Join-Path $env:TEMP ('dsh-code-security-' + [guid]::NewGuid().ToString('N'))
+  Write-Host "Fetching $repoUrl ..." -ForegroundColor Cyan
+  git clone --depth 1 "$repoUrl" "$clone"
+  if ($LASTEXITCODE -ne 0) {
+    Write-Error "git clone failed (exit $LASTEXITCODE) — check the repository URL and network access."
+    exit $LASTEXITCODE
+  }
+  try {
+    & (Join-Path $clone 'install.ps1') @args
+    exit $LASTEXITCODE
+  } finally {
+    Remove-Item $clone -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
 $dsh = Join-Path $env:USERPROFILE '.dsh'
 
 # ── 1. agent preset ─────────────────────────────────────────────────────────
@@ -19,7 +59,7 @@ Get-ChildItem $src -Force | Where-Object { $_.Name -ne 'gate' -and $_.Name -ne '
 # ── 2. security gate into the web profile ───────────────────────────────────
 $profileDir = Join-Path $dsh 'profiles\web'
 if (Test-Path (Join-Path $profileDir 'package.json')) {
-  Write-Host "Installing dsh-security-gate into profile $profileDir" -ForegroundColor Cyan
+  Write-Host "Installing @dsh.so/dsh-security-gate into profile $profileDir" -ForegroundColor Cyan
   Push-Location $profileDir
   try {
     & 'dsh' plugin --profile web add (Join-Path $src 'gate')

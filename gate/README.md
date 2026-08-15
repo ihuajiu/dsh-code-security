@@ -41,10 +41,10 @@ dsh plugin --profile web add <本目录>
 ```
 
 `gate/package.json` 声明了 `dsh.bundle.patch: ./cordis.patch.yml`，`dsh plugin add`
-会自动把 `dsh-security-gate` 加入 profile 的 `dsh.profile.bundles` 层并由 bundle
-补丁插入插件行。**旧版手动安装**（`cordis.patch.yml` 里的 `- insert:` 行）需要删除该行：
-重跑 `install.ps1`/`install.sh` 会自动移除，否则会与 bundle 行产生重复 entry id
-（loader 直接报错）。
+会自动把 `@dsh.so/dsh-security-gate` 加入 profile 的 `dsh.profile.bundles` 层并由 bundle
+补丁插入插件行。**旧版手动安装**（`cordis.patch.yml` 里的 `- insert:` 行，旧包名
+`dsh-security-gate`）需要删除该行：重跑 `install.ps1`/`install.sh` 会自动移除，否则会与
+bundle 行产生重复 entry id（loader 直接报错）。
 
 自定义配置用 id 覆盖补丁（**整体替换** config，需列全字段）追加到
 `~/.dsh/profiles/web/cordis.patch.yml`：

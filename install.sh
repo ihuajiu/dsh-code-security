@@ -5,9 +5,60 @@
 #      gate/package.json makes `dsh plugin add` activate it as a profile bundle
 #      layer automatically (no manual cordis.patch.yml row needed).
 # Idempotent: re-running replaces the previous copies.
+#
+# Run from a project checkout, or piped as one command once the repository is
+# published:  curl -fsSL <raw-install-url> | bash   (the script then clones the
+# repo itself and re-runs from the clone).
 set -euo pipefail
 
-src="$(cd "$(dirname "$0")" && pwd)"
+# Published repository for the piped-install path. Set
+# DSH_CODE_SECURITY_REPO_URL to override.
+repo_url="${DSH_CODE_SECURITY_REPO_URL:-https://github.com/ihuajiu/dsh-code-security}"
+
+# Locate the project checkout this script lives in. Empty when piped
+# (`curl ... | bash`): only the script body arrives, without the project files.
+src=""
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ "${BASH_SOURCE[0]}" != "bash" ]; then
+  src="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+fi
+
+has_payload=0
+if [ -n "$src" ] && [ -f "$src/agent.cordis.yml" ] && [ -d "$src/gate" ]; then
+  has_payload=1
+fi
+
+if [ "$has_payload" -eq 0 ]; then
+  # Piped mode (or a bare copy of this script): fetch the project first, then
+  # re-run the installer from the clone so the preset payload and gate code are
+  # present.
+  case "$repo_url" in
+    *"<owner>"*)
+      echo "install.sh must run from the project checkout, or set DSH_CODE_SECURITY_REPO_URL to the published repository URL." >&2
+      exit 1
+      ;;
+  esac
+  if ! command -v git >/dev/null 2>&1; then
+    echo "git is required for the piped install — install git and retry." >&2
+    exit 1
+  fi
+  clone_dir="$(mktemp -d)"
+  clone="$clone_dir/dsh-code-security"
+  echo "Fetching $repo_url ..."
+  git clone --depth 1 "$repo_url" "$clone"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "git clone failed (exit $rc) — check the repository URL and network access." >&2
+    rm -rf "$clone_dir"
+    exit "$rc"
+  fi
+  set +e
+  ( cd "$clone" && bash ./install.sh "$@" )
+  rc=$?
+  set -e
+  rm -rf "$clone_dir"
+  exit "$rc"
+fi
+
 dsh="${DSH_HOME:-$HOME/.dsh}"
 profile="${1:-web}"
 
@@ -25,7 +76,7 @@ done
 # ── 2. security gate into the profile ───────────────────────────────────────
 profile_dir="$dsh/profiles/$profile"
 if [ -f "$profile_dir/package.json" ]; then
-  echo "Installing dsh-security-gate into profile $profile_dir"
+  echo "Installing @dsh.so/dsh-security-gate into profile $profile_dir"
   (cd "$profile_dir" && dsh plugin --profile "$profile" add "$src/gate")
   patch="$profile_dir/cordis.patch.yml"
   # Since gate/package.json declares `dsh.bundle.patch`, `dsh plugin add` above

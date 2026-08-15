@@ -44,7 +44,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve as resolvePath, sep as pathSep } from 'node:path';
 
-export const name = 'codex-security';
+export const name = 'dsh-security-tools';
 
 /**
  * SHA-256 manifest of the bundled payload scripts, keyed by path relative to

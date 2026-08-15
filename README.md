@@ -1,6 +1,6 @@
 # dsh-code-security（安全审计插件）
 
-> 产品展示名：**dsh-code-security**；技术标识：宿主插件 `dsh-security-gate`、
+> 产品展示名：**dsh-code-security**；技术标识：宿主插件 `@dsh.so/dsh-security-gate`、
 > agent preset `dsh-security`、工具 `dsh_security_*`、端点 `/dsh-security/*`。
 > 仓库目录名沿用 `openai-code-security`（历史来源）。
 
@@ -9,7 +9,7 @@
 与 OpenAI Codex Security 无任何关联（`Codex`/`Codex Security` 为 OpenAI 商标，
 本项目已改用中性命名）。
 
-**1. 安全门禁（核心，宿主插件 `dsh-security-gate`）**
+**1. 安全门禁（核心，宿主插件 `@dsh.so/dsh-security-gate`）**
 - 新插件安装时**自动审计**：监控 `~/.dsh/.agent-presets/` 的预设与
   `~/.dsh/profiles/*/` 的插件包（`dsh plugin` 安装的依赖/bundle），轮询发现新插件
   即用**宿主模型**（同会话路由，零认证）采集源码生成安全审计报告。
@@ -66,6 +66,26 @@
 
 > **没装成功？** 最常见原因是电脑上缺少 `pnpm`（门禁安装依赖它）。先执行
 > `npm install -g pnpm` 装好，再重跑安装脚本即可。
+
+### 在线安装（一条命令，无需下载项目）
+
+不需要先克隆项目，直接复制一条命令执行——脚本会检测到自身没有携带项目文件，
+自动下载整个仓库后再安装：
+
+```powershell
+# Windows（PowerShell）
+irm https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/install.ps1 | iex
+```
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/install.sh | bash
+```
+
+- 需要已安装 `git`（下载用）与 `pnpm`（门禁安装用）。
+- 仓库地址可自定义：Windows 设 `$env:DSH_CODE_SECURITY_REPO_URL`，macOS/Linux 设
+  `DSH_CODE_SECURITY_REPO_URL` 环境变量（镜像场景）。
+- 仓库：https://github.com/ihuajiu/dsh-code-security
 
 ### 手动安装（可选，高级用户）
 
@@ -127,7 +147,7 @@ DSH 工具替换上游技能中提到的 Codex MCP 工具（上游技能自带 "
 
 ```
 openai-code-security/
-├── gate/                   # 安全门禁宿主插件 dsh-security-gate
+├── gate/                   # 安全门禁宿主插件 @dsh.so/dsh-security-gate
 │   ├── index.js            #   零依赖 cordis 插件
 │   ├── client.js           #   设置页「安全审计」面板
 │   ├── cordis.patch.yml    #   bundle 补丁（dsh plugin add 自动挂载）
@@ -215,8 +235,11 @@ SQL/NoSQL 注入、XSS、缺失认证/授权、越权访问与 IDOR、路径穿�
 ## 卸载
 
 - **预设**：删除 `~/.dsh/.agent-presets/dsh-security/`。
-- **门禁**：`dsh plugin --profile web remove dsh-security-gate`，并从
-  `~/.dsh/profiles/web/cordis.patch.yml` 删除 `dsh-security-gate` 行。
+- **门禁**：`dsh plugin --profile web remove @dsh.so/dsh-security-gate`；若
+  `~/.dsh/profiles/web/cordis.patch.yml` 里残留旧版手动行（`dsh-security-gate`），一并删掉。
+
+> 从旧包名 `dsh-security-gate` 升级：先 `dsh plugin --profile web remove dsh-security-gate`，
+> 再按安装章节重新安装即可（install 脚本会自动清理旧配置行）。
 
 ## 许可证、归属与命名
 
@@ -227,7 +250,7 @@ SQL/NoSQL 注入、XSS、缺失认证/授权、越权访问与 IDOR、路径穿�
   发现可能需要 Trusted Access for Cyber（chatgpt.com/cyber）。
 - **命名**：`Codex` / `Codex Security` 为 OpenAI 商标。本项目对外展示名为
   **dsh-code-security**（安全审计插件），技术标识为 `dsh-security` /
-  `dsh-security-gate` 等中性名称，仅在上游归属、CLI 包名
+  `@dsh.so/dsh-security-gate` 等中性名称，仅在上游归属、CLI 包名
   （`@openai/codex-security`）与技能内引用中保留上游原名。
 
 ## 已知限制
