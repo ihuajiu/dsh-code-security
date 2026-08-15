@@ -1151,7 +1151,11 @@ export function apply(ctx, config = {}) {
       // can authenticate (same mechanism as the client-modules boot manifest).
       if (typeof webServer.tapIndex === 'function') {
         const injectToken = (html) => {
-          const script = '<script>window.__DSH_SECURITY_TOKEN__=' + JSON.stringify(endpointToken) + '<\\/script>';
+          // The token is hex so a literal `</script>` is safe here — and a real
+          // closing tag is REQUIRED: an unclosed `<\/script>` (as in the
+          // client-modules manifest) would swallow every later script element,
+          // leaving window.__DSH_BOOT__ undefined and the page blank.
+          const script = '<script>window.__DSH_SECURITY_TOKEN__=' + JSON.stringify(endpointToken) + '</script>';
           const head = html.indexOf('<head>');
           return head === -1 ? script + html : html.slice(0, head + 6) + script + html.slice(head + 6);
         };
