@@ -592,10 +592,44 @@ export function apply(ctx, config = {}) {
     } catch {
       /* best-effort */
     }
-    saveState(state);
-    writeSummary(state);
+    // Persist with a fresh read + per-entry merge, NOT the stale snapshot from
+    // loadState() above: parallel scans (maxParallel >= 2) each hold their own
+    // snapshot, and a whole-file write here would clobber a concurrently
+    // completed scan's status back to 'running' (lost update — observed: the
+    // first finished scan was overwritten by the second's saveState).
+    persistScanResult(info.key, entry, scan);
     console.log('[dsh-security-gate] scan ' + info.key + ' -> ' + scan.status + ' in ' + (scan.durationMs ?? 0) + 'ms' + (scan.reportDir ? ' @ ' + scan.reportDir : ''));
     return { key: info.key, status: scan.status, reportDir: scan.reportDir, note: scan.note };
+  }
+
+  /** Persist one plugin's finished scan by re-reading state.json and merging
+   *  only that entry, so a parallel scan's completed result is never
+   *  overwritten by another scan's stale snapshot. */
+  function persistScanResult(key, entry, scan) {
+    const fresh = loadState();
+    const freshEntry = fresh.plugins[key] ?? {
+      key,
+      kind: entry.kind,
+      id: entry.id,
+      root: entry.root,
+      version: entry.version,
+      firstSeenAt: entry.firstSeenAt ?? nowIso(),
+      scans: [],
+      lastScan: null,
+    };
+    // Keep root/version in sync with the newest known values (a tick may have
+    // refreshed them while this scan was running).
+    if (entry.root !== undefined) freshEntry.root = entry.root;
+    if (entry.version !== undefined) freshEntry.version = entry.version;
+    const scans = freshEntry.scans ?? [];
+    const idx = scans.findIndex((s) => s && s.at === scan.at);
+    if (idx >= 0) scans[idx] = scan;
+    else scans.push(scan);
+    freshEntry.scans = scans;
+    freshEntry.lastScan = scan;
+    fresh.plugins[key] = freshEntry;
+    saveState(fresh);
+    writeSummary(fresh);
   }
 
   /** Estimate harvested source size for ETA fallback (llm engine). */
