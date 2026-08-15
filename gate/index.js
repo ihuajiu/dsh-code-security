@@ -730,6 +730,11 @@ export function apply(ctx, config = {}) {
         ctrl.abort('dsh-security-gate llm idle timeout (no chunks for ' + cfg.llmIdleMs + 'ms)');
       }
     }, 5000);
+    // Declared at function scope (NOT inside the try below): the finally block
+    // is a sibling scope, so a `const` declared in the try body would throw
+    // `ReferenceError: progressTimer is not defined` when the finally runs,
+    // skipping report write-out and leaking the interval.
+    let progressTimer = null;
     try {
       const callSignal = signal !== undefined && typeof AbortSignal.any === 'function'
         ? AbortSignal.any([signal, ctrl.signal])
@@ -772,7 +777,7 @@ export function apply(ctx, config = {}) {
       // an operator watching `dsh web` sees the scan is alive and moving.
       const progressStarted = Date.now();
       let progressLast = 0;
-      const progressTimer = setInterval(() => {
+      progressTimer = setInterval(() => {
         const now = Date.now();
         if (now - progressLast < 15000) return;
         progressLast = now;
@@ -825,7 +830,7 @@ export function apply(ctx, config = {}) {
     } finally {
       clearTimeout(abortTimer);
       clearInterval(idleTimer);
-      clearInterval(progressTimer);
+      if (progressTimer !== null) clearInterval(progressTimer);
     }
     try {
       writeFileSync(join(reportDir, 'report.md'), sanitizeReportHtml(report) + REPORT_FOOTER, { mode: 0o600 });
