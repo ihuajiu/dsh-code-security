@@ -50,16 +50,50 @@ import { resolve as resolvePath, sep as pathSep, dirname, basename } from 'node:
 export const name = 'dsh-security-tools';
 
 /**
- * SHA-256 manifest of the bundled payload scripts, keyed by path relative to
- * `bundled/`. Verified at plugin load; `dsh_security_resources` reports
- * pass/fail so the agent never runs a script whose content is not the pristine
- * bundled one. Regenerate after a payload update with:
+ * SHA-256 manifest of the ENTIRE bundled payload (skills, references, schemas,
+ * examples, scripts, mcp), keyed by path relative to `bundled/`. Verified at
+ * plugin load and again on every `dsh_security_resources` call; a mismatch
+ * refuses to hand out the payload paths, so the agent never runs a tampered
+ * file. Regenerate after a payload update with:
  *
- *   Get-ChildItem -Recurse -File bundled/scripts | ForEach-Object {
- *     "{0}`t{1}" -f $_.FullName.Substring($PWD.Path.Length + 1).Replace('\','/'),
- *       (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant() }
+ *   Get-ChildItem -Recurse -File bundled | ForEach-Object {
+ *     "{0}`t{1}" -f .FullName.Substring(E:\AgentsWs\PluginBuilder\openai-code-security.Path.Length + 9).Replace('\','/'),
+ *       (Get-FileHash -Algorithm SHA256 .FullName).Hash.ToLowerInvariant() }
  */
-const SCRIPTS_CHECKSUMS = {
+const PAYLOAD_CHECKSUMS = {
+﻿  '.app.json': 'e4d5b22326ee380de5d779f7b5ba590c8d1bee9a80e8869fb2bd7f4def8e974d',
+  '.mcp.json': 'd52bd48cdcc1a7081eb146a9e5c0a47bb4fa815bc625ff4c9a499c18ae9c74b4',
+  '.codex-plugin/plugin.json': '3d9c9dab0f39dc8a50364c7c18ab61ff823e494d0b28f6affe3b66416058377a',
+  'assets/logo.png': '9b9c2b09b2fa064611fb62307d321d5c2ea70cf0789f7ce34cdb0fc0d9190b3a',
+  'examples/completed-scan/coverage.json': 'd55b9b98d48323b4659dfee6531ec83ec538f2084325412b7188bf85ad68b01b',
+  'examples/completed-scan/findings.json': 'a6dc4521d6478828224fbafc33585401a47bfeb0e56e07b5d2886e8a29937f2f',
+  'examples/completed-scan/scan-manifest.json': 'd245ae9fc62a676293c6821e562d1a2d7d59db12d5b8dc99b85f7c5f1462fe00',
+  'mcp/server.mjs': 'c58624aa4c4bd3efbb67601c9c2e98759f167f608320a6cd342814b2f2e6a636',
+  'mcp/server.mjs.br.part-000': '1f8f8420c127d3940c0d273885982a66d4e203f9400a3f4165a89624cca9e8e2',
+  'mcp/server.mjs.br.part-001': 'eea083afb1fef8aba0d2c981d1894d22458f96c16e33389138ee23bafccfca1e',
+  'preflight/capability-profiles.toml': '732bdb3696528d8de0698dd75a83914cd6970cfa1064b5701d7c19d6ccd2a000',
+  'references/config-preflight.md': '0915a9305509e04a5c89ad768783cb558100237c7881f6b30d95f3000872038a',
+  'references/desktop-config-preflight.md': 'd03e7c604a0459509a4a3238289c3ad0725811e8b11fb7d0044ce8bcee6a7a26',
+  'references/final-report.md': '2dc7357a6b35638b0417a331b2223095b99483ff70c0266df416e23eee828fb4',
+  'references/finding-detail-fields.md': '7790106dd9c15591c9fd889517f41ae81ed7aad99e23f74cb55ba8fc34a187b4',
+  'references/sarif-adapter.md': 'cebedfc09509193f081f94a592f670a639cfe741214bf4fc3aef0d920eb6f192',
+  'references/scan-artifacts.md': 'd4819f0a3d9fe1cc933d9e065c8117da5640a9ee500b7f939cbf81d4b79b0cad',
+  'references/scan-contract.md': '0d99dc91bb03991e501a3e17596bd618f0f17840586f10b134d51c5f6022ffc3',
+  'references/security-guidance.md': 'c1fd937f0e8547b86d649325a5676e847a16aedc5009b17b57ace2a4a5d35895',
+  'references/shared-hard-rules.md': '4e46d8dc62573150ec17075772279d62efc459cc3ce6e590ff91355fd2c3d7cb',
+  'references/static-finding-assessment.md': '78de933caef1c8d971dab83fbb71877602a1197a52eaa7a59d6ff7bc399d0bc7',
+  'schemas/coverage.schema.json': '7964b132998ca4dcdd19c75f5d92483e1d44cb71462237709b968ec548c10652',
+  'schemas/findings.schema.json': 'bd16dfe9a68c9b0485cad15b4ea3b037b0006dfb76a0549ed65a60ab8b062ac4',
+  'schemas/scan-manifest.schema.json': '20d6801775ae1b056d10114c3af5e07c5edfef27468218611411231a95c7c55e',
+  'schemas/definitions/artifact-common.schema.json': '8187236867a2397515571d937deac92dcbf23d3db5e330d32b1f24aced4b9abc',
+  'schemas/definitions/discovery-candidate.schema.json': 'b0cf54fc1ae1947db0f6a6f73e17d1124d528226de763fb89489d05fd612331b',
+  'schemas/tools/candidate-attack-paths.schema.json': 'f6fcb643b4b975466c4717356a0768b0572812cd832578d8714557f5e3d16935',
+  'schemas/tools/candidate-validations.schema.json': 'c871eb3462b7873c1774e6aade62acdd570636e43c0ac3c7b41b7041ca5627e9',
+  'schemas/tools/deep-reducer.schema.json': '16221f688dd061172486d75972789f6cfbb0740cd5ae0fb121c732d69cda53dd',
+  'schemas/tools/discovery-candidates.schema.json': 'dcd2031d64015c69b415c66e57d6e90cbdef91152a445a6f409c14d80153afa6',
+  'schemas/tools/review-items.schema.json': 'acc4f4909446a62811728dd1d6581456053da8d26f774b7af208a1856f86ac5b',
+  'schemas/tools/scan-draft.schema.json': 'a3733f585f2cf10d9e243197c1997ec87d1254013adad2af4a773b914b2a5608',
+  'schemas/tools/worker-threat-model.schema.json': 'a00f875918794661316a033bd2d03426d61ab1e41d4a36c548c07525dcfde478',
   'scripts/config_preflight.py': 'cdf8cd6083488f9c1ceb1ea55c7450a36ab140d5f014ac03fa77521957dc6665',
   'scripts/deep_scan_config.py': '0100785de2281e7184572b043377d22e18b9cc6d7a78a8d607d69251253ad0ac',
   'scripts/deep_scan_workbench.py': '37e7e8e67899a4f2ce1fb637214cfaa6ce68e39a9e85eb88f318a7c85036895e',
@@ -77,8 +111,6 @@ const SCRIPTS_CHECKSUMS = {
   'scripts/validate_scan_contract.py': 'e876733bc1ac0efbccbac112c1e43975451bb199e7e51e876e9b9b7fbd3c30ce',
   'scripts/validate_tracking_source.py': '8335c0392c49cd8229997c34f7df1c1ebda029b5a185b647ed702d6f91cd840a',
   'scripts/windows_scan_local_files.py': 'badcd9d7a2ece5448fec50436394dd9456223e6c6cf8489aa8645e4d2a0b987d',
-  'scripts/workbench/__init__.py': '4fe54d953e899a1c5b59902f0cdbb4fe0537fa5c4e19fe243832439b8687fa74',
-  'scripts/workbench/handoff.py': '168c25ac240f42f2c2a48506693738e629884feaf3516390af500bb3f104c45c',
   'scripts/workbench_cli.py': '8ffba209a7322a160c35ae98567990fbe203d2e031bf251ba27392c41eedd362',
   'scripts/workbench_constants.py': 'a8ee358d041d2d6652ad78c3fdfd8302311867b3f5c0d8ca4756ec54b6f778a2',
   'scripts/workbench_db.py': '7f1f8e789d102e6088da9292b87d9442becc18f6970acaf5bd331fcd0d2c4900',
@@ -94,6 +126,48 @@ const SCRIPTS_CHECKSUMS = {
   'scripts/workbench_target.py': '4d38d9ab7bf4dae35964cd51635edf928f089dc48376963bca709ad37569276e',
   'scripts/workbench_target_state.py': '925ce0abd864bd5312b5e2df309de6dd3285793b56af91286eaf2ece29815a0b',
   'scripts/workbench_validation.py': '8a44c79ee6675907ce7bb8577f21b6c45be74085ff638cb24a20dcf871568514',
+  'scripts/workbench/handoff.py': '168c25ac240f42f2c2a48506693738e629884feaf3516390af500bb3f104c45c',
+  'scripts/workbench/__init__.py': '4fe54d953e899a1c5b59902f0cdbb4fe0537fa5c4e19fe243832439b8687fa74',
+  'skills/attack-path-analysis/SKILL.md': 'c7499785278fcfb7905b3082175bcf267fad7c9ab1e91ed4af9757a92e618fe5',
+  'skills/attack-path-analysis/agents/openai.yaml': 'd9355cbcf0bc81098c9e837d9d4e8644e598410d052a862ab11cf91ef9ccb633',
+  'skills/attack-path-analysis/references/attack-path-facts.md': '8c8f1abb46ddf045d76908df78e3a273da8d61aaa0f37fc992534a3ddfe42430',
+  'skills/attack-path-analysis/references/severity-policy.md': '4391c415c9270f018165f0357b10a0c47fa9f757367534690d303a9011a89ffa',
+  'skills/deep-security-scan/SKILL.md': '5115259fcf4348802734fba624aa2ccaf8547b0aba561c532bc8eda9dc7be6ba',
+  'skills/deep-security-scan/agents/openai.yaml': '3f8d781bf372b0d053a017eabaebf947d5d48d9be2b82cb67da211128924c3f1',
+  'skills/define-security-policy/SKILL.md': '286f549d7d5b017e13e38031494723b5870949e3f82ac85b6a9c32d4718433bf',
+  'skills/define-security-policy/agents/openai.yaml': '8c40b0f8bd1eb7feabdcea69f12c2a7d18e492e96893c0702507ffd808b8e2b4',
+  'skills/finding-discovery/SKILL.md': '938b73329188aa124770fcdf7cf7916e2941c8fdbf20acd9df96bc1a80185fe7',
+  'skills/finding-discovery/agents/openai.yaml': 'c044dd83a7624b90ed19f11adc899202685ce64e32502f1d46225f69f9a2c962',
+  'skills/fix-finding/SKILL.md': '0e3ac8898a43b08c415c380fe59e8a052c17fb8264af945a66ce6b14121fd601',
+  'skills/fix-finding/agents/openai.yaml': '3d7a8f4a58ae1f1eb8c748ca48ea403562489a061949454ddea693ddbdbe646a',
+  'skills/propose-security-hardening/SKILL.md': 'b9d2c81ecb99e6eb4ad6424dbd297a935feb66c2658692d48caf4d9840eaf306',
+  'skills/propose-security-hardening/agents/openai.yaml': '1bcab19d48eb4b768c0dc435bd2e738f1471c2345cce5865bb31bdca5be0b134',
+  'skills/propose-security-hardening/references/proposal-format.md': '6c0000722629098365afbf6809c3402121f90438600fb574fbc2c77aeb649ba4',
+  'skills/security-diff-scan/SKILL.md': '592935e3fe7888a1d8ba77eda89cc67c9484f020242080d99efba94093b7b836',
+  'skills/security-diff-scan/agents/openai.yaml': 'f3d31e09befbb8532b53fdccb63a34c0b894a7fb96215b40e84647cd9f8e1b50',
+  'skills/security-scan/SKILL.md': '5dcd941f3dc0362edf14675256e987cfe7e71f47ec8982616133101b744bc98d',
+  'skills/security-scan/agents/openai.yaml': '5952ae0b0f7d378b7e6ab3fe793335a0e26e5d15bd2d7fdd14ecdd795607ceb6',
+  'skills/security-scan/references/desktop-scan.md': '8138e3cb6862654c141d58dff865fb760c43f1e2b10994488b4329cfce95ebe2',
+  'skills/security-scan/references/repository-wide-scan.md': '17abc3c18c05cf1f85138a4efd3bb9a63880961f5a044ae6906a8bb3a7c8fa81',
+  'skills/security-scan/references/scan-artifacts-and-ledger.md': '443084c974eb80747a6dc4e092c7fca55f412ca5ab3f14e2d27dc1223cc690a4',
+  'skills/threat-model/SKILL.md': '0fe044993d1a08c4aefbc9d431f6f18115f62b3dbc2e818258af01ec8924a246',
+  'skills/threat-model/agents/openai.yaml': 'a3533478c2548248ef07c9afbbe0a7451f1fa1882883b4def0906d8113b7dd6c',
+  'skills/threat-model/references/threat-model-guidance.md': '32b417073376523c17647a35aaf36445a2429d2708b06c29ff00119887857eb0',
+  'skills/track-findings/SKILL.md': 'cb6e7625bc7c10fbc7b94d99918667c9e942bacb56d871e837a6939d20f4fd8c',
+  'skills/track-findings/agents/openai.yaml': '39e73c0003afc8bd9d3cf53c027d8274e724dc41f46e3cd6863ad34bb4de4200',
+  'skills/track-findings/references/github-security-advisories.md': 'f56010d265d0ce56e555dd73a92777a6d3be8f5d31bd2af7ff163423a667d10e',
+  'skills/track-findings/references/jira.md': '05affbdefbfd8054d08f16e5fe15729ade440b5627a4561f8693bd97fb3a3ea2',
+  'skills/triage-finding/SKILL.md': '4c3499bad13a290bcf9678e996807ca6e613557d427d9efa87f104421e33008f',
+  'skills/triage-finding/agents/openai.yaml': '1d53cfba14878c05745309eec3f682f70c5e8d49ecc033628cf832a5dd27c9cb',
+  'skills/triage-finding/references/github-rest-intake.md': '212d11b82ea986ba4fe074e04821b545a2c44b2a405309031e30e286d8d10b5a',
+  'skills/triage-finding/references/ticket-intake.md': 'bd545655e0402f5f326f34191a67b6dd30c382914e9ae81b2e66ad745860e78a',
+  'skills/triage-finding/references/triage-result-contract.md': '321027c102cf36119376ef86f0701a4a7c6fc22e46d28fd240639aae156b134a',
+  'skills/validation/SKILL.md': 'f92138ea9ad6a76a533b95212694f76f399666efb30568567f7e0d0dfdd28783',
+  'skills/validation/agents/openai.yaml': '7516bcd4748b55566694284d7d953a7db0c94d5a2123895fabb36d7d9d7d74e4',
+  'skills/validation/references/validation-guidance.md': '42f7a9d85b78d0deb5e6eda82b8c59ed101c40d36065833b9cf39fe50699e255',
+  'skills/vulnerability-writeup/SKILL.md': '6bdb62f5e625909ce5d15253ee51f866d0b6a43222100649767c524f793fad60',
+  'skills/vulnerability-writeup/agents/openai.yaml': '7987566daac59e3dd6c5211fe020f71fc4c862843c231d10c28a45697d680f9e',
+  'skills/vulnerability-writeup/references/report-format.md': '9172eabf753038c97fdf7eb77c9b8c9986e57224b2f9a9b8429552c28eaeec70',
 };
 
 /** Resolve the quoting dialect: explicit config, else auto by host platform. */
@@ -125,7 +199,7 @@ function quoteArg(value, shell) {
  */
 function verifyPayloadIntegrity(bundledDirUrl) {
   const failures = [];
-  const expected = new Set(Object.keys(SCRIPTS_CHECKSUMS));
+  const expected = new Set(Object.keys(PAYLOAD_CHECKSUMS));
   const seen = new Set();
   const walk = (dirRel) => {
     for (const entry of readdirSync(new URL(dirRel, bundledDirUrl), { withFileTypes: true })) {
@@ -134,9 +208,9 @@ function verifyPayloadIntegrity(bundledDirUrl) {
         walk(rel + '/');
         continue;
       }
-      if (!entry.isFile() || !entry.name.endsWith('.py')) continue;
+      if (!entry.isFile()) continue;
       seen.add(rel);
-      const want = SCRIPTS_CHECKSUMS[rel];
+      const want = PAYLOAD_CHECKSUMS[rel];
       if (want === undefined) {
         failures.push(`${rel} (unexpected file)`);
         continue;
@@ -145,7 +219,7 @@ function verifyPayloadIntegrity(bundledDirUrl) {
       if (digest !== want) failures.push(`${rel} (hash mismatch)`);
     }
   };
-  walk('scripts/');
+  walk('');
   for (const rel of expected) {
     if (!seen.has(rel)) failures.push(`${rel} (missing)`);
   }
@@ -333,7 +407,11 @@ export function apply(ctx, config = {}) {
   // policy). Extend via config `cliAllowedVerbs`.
   const cliAllowedVerbs = config.cliAllowedVerbs ?? [
     '--help', '-h', '--version', '--schema', '--llms', '--llms-full',
-    'info', 'logout', 'scans', 'findings', 'export',
+    'info', 'logout', 'scans', 'findings',
+    // `export` is intentionally NOT allowlisted by default (gate finding F6):
+    // it takes arbitrary file paths with no containment, bypassing the path
+    // confinement the dedicated scan/findings/compare tools enforce. An
+    // administrator may re-add it via config cliAllowedVerbs.
     // `login` is intentionally NOT allowlisted by default (gate finding 2):
     // it prompts for / accepts credentials, and a prompt-injected command
     // could pass an API key as a shell argument. Authenticate via env vars
@@ -538,7 +616,7 @@ export function apply(ctx, config = {}) {
         scan_prompt_file: { type: 'string', description: 'Path to a file with shared scan instructions; must resolve inside the working directory.' },
         post_scan_prompt_file: { type: 'string', description: 'Path to a file with post-scan follow-up instructions; must resolve inside the working directory.' },
         knowledge_base: { type: 'array', items: { type: 'string' }, description: 'Security documents to share with the scan (files or directories inside the working directory); repeatable.' },
-        auth: { type: 'string', enum: ['chatgpt', 'api-key'], description: 'Credential selection for interactive scans.' },
+        auth: { type: 'string', enum: ['api-key'], description: 'Credential selection for interactive scans (only api-key is accepted; chatgpt is intentionally not offered — it would reuse stored ChatGPT credentials).' },
         output_dir: { type: 'string', description: 'Directory for scan results (defaults to the Codex Security scans dir); must resolve inside the working directory when provided.' },
         verbose: { type: 'boolean', description: 'Print scan diagnostics to stderr.' },
         workdir: { type: 'string', description: 'Working directory for the scan (defaults to the session working directory; must resolve inside it).' },
