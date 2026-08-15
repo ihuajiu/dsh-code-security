@@ -324,14 +324,21 @@ window.__ModuleLoader__.load({
 			".dshsec-body a{color:" + theme.accent + "}",
 		].join(" ");
 
-		/** Split a bilingual report into its English and Chinese halves on the
-		 *  generator marker; zh is null when the model produced no translation. */
+		/** Split a bilingual report into English and Chinese halves on the
+		 *  generator marker. Splits on the LAST occurrence: flash models
+		 *  sometimes drop a stray marker after an intro sentence, which would
+		 *  otherwise leave the English view empty. zh is null when the model
+		 *  produced no marker. */
 		function splitReport(text) {
 			var marker = "<!-- REPORT_ZH -->";
 			var s = String(text || "");
-			var idx = s.indexOf(marker);
+			var idx = s.lastIndexOf(marker);
 			if (idx < 0) return { en: s, zh: null };
 			return { en: s.slice(0, idx), zh: s.slice(idx + marker.length) };
+		}
+		/** True when a string contains CJK characters (a real Chinese translation). */
+		function hasCjk(s) {
+			return /[\u4e00-\u9fff]/.test(String(s || ""));
 		}
 
 		/** Clipboard fallback for non-secure contexts (no navigator.clipboard). */
@@ -435,7 +442,7 @@ window.__ModuleLoader__.load({
 			var copyReport = useCallback(function () {
 				if (!open || open.text === null) return;
 				var split = splitReport(open.text);
-				var zhOk = split.zh !== null && split.zh.trim() !== "";
+				var zhOk = split.zh !== null && split.zh.trim() !== "" && hasCjk(split.zh);
 				var text = lang === "zh" && zhOk ? split.zh : split.en;
 				var done = function () {
 					setCopied(true);
@@ -575,7 +582,7 @@ window.__ModuleLoader__.load({
 					open !== null && open.key === e.key
 						? (function () {
 							var split = open.text === null ? null : splitReport(open.text);
-							var zhAvailable = split !== null && split.zh !== null && split.zh.trim() !== "";
+							var zhAvailable = split !== null && split.zh !== null && split.zh.trim() !== "" && hasCjk(split.zh);
 							var showZh = lang === "zh" && zhAvailable;
 							var display = open.text === null ? null : (showZh ? split.zh : split.en);
 							return react.createElement("div", { style: Object.assign({}, styles.report, { marginTop: "10px" }) },

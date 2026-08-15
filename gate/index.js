@@ -514,9 +514,11 @@ export function apply(ctx, config = {}) {
       // Bilingual reports: complete English report first, then a complete
       // Chinese translation, separated by a marker the panel splits on.
       'Language: write the ENTIRE report in ENGLISH first — it must be complete and standalone. ' +
+      'Do NOT add any preamble or intro sentence before the report; start directly with the "# Summary" heading. ' +
       'Then append a complete CHINESE translation of the same report (same structure and headings, ' +
-      'translated, not summarized). Separate the two parts with a single line containing exactly ' +
-      'this marker: <!-- REPORT_ZH -->\n\n' +
+      'translated, not summarized). The marker line <!-- REPORT_ZH --> must appear EXACTLY ONCE, ' +
+      'on its own line immediately BEFORE the Chinese translation — never after an intro sentence ' +
+      'and never anywhere inside the English part.\n\n' +
       // Delimit the harvested (untrusted) content so the model can never
       // mistake source text for instructions (F10).
       '<source_code>\n' + harvested + '\n</source_code>\n';
