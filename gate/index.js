@@ -22,7 +22,7 @@
 // (`@dsh.so/dsh-security-gate`) to the profile's bundle layer automatically;
 // no manual cordis.patch.yml row is needed.
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync, realpathSync, rmSync } from 'node:fs';
 import { join, dirname, relative, basename, resolve as resolvePath, sep as pathSep } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -846,6 +846,38 @@ export function apply(ctx, config = {}) {
   // yet at apply time, registerWebRoutes() is retried from the watcher tick.
   let routesRegistered = false;
   const scanHits = []; // timestamps of recent POST /scan triggers (rate limit)
+  /** CSRF guard: allow only same-origin browser requests (Origin == Host). */
+  const sameOrigin = (req) => {
+    const origin = req.headers && req.headers.origin;
+    const host = req.headers && req.headers.host;
+    if (!origin || !host) return true; // no Origin (curl/tooling) -> allowed, rate-limited elsewhere
+    try {
+      return new URL(String(origin)).host === String(host);
+    } catch {
+      return false;
+    }
+  };
+  /** Wipe audit records for the given plugin keys (or all) and their report dirs. */
+  function clearRecords(keys, all) {
+    const state = loadState();
+    const entries = all ? Object.values(state.plugins) : keys.map((k) => state.plugins[k]).filter(Boolean);
+    if (all) state.plugins = {};
+    else for (const k of keys) delete state.plugins[k];
+    for (const entry of entries) {
+      for (const scan of entry.scans ?? []) {
+        if (scan.reportDir) {
+          try {
+            rmSync(scan.reportDir, { recursive: true, force: true });
+          } catch {
+            /* best-effort */
+          }
+        }
+      }
+    }
+    saveState(state);
+    writeSummary(state);
+    return entries.map((e) => e.key);
+  }
   const sendJson = (res, payload, status = 200) => {
     res.statusCode = status;
     res.setHeader('content-type', 'application/json; charset=utf-8');
@@ -952,19 +984,9 @@ export function apply(ctx, config = {}) {
           // cross-origin browser POST (malicious page) is rejected outright.
           // Origin-less requests (curl, local tooling) still hit the rate
           // limit below.
-          const origin = req.headers && req.headers.origin;
-          const host = req.headers && req.headers.host;
-          if (origin && host) {
-            let sameOrigin = false;
-            try {
-              sameOrigin = new URL(String(origin)).host === String(host);
-            } catch {
-              sameOrigin = false;
-            }
-            if (!sameOrigin) {
-              sendJson(res, { ok: false, error: 'cross-origin request rejected' }, 403);
-              return;
-            }
+          if (!sameOrigin(req)) {
+            sendJson(res, { ok: false, error: 'cross-origin request rejected' }, 403);
+            return;
           }
           // Rate limit (F1): the endpoint is unauthenticated on localhost, so
           // bound how often scans can be triggered to avoid resource/billing
@@ -996,6 +1018,34 @@ export function apply(ctx, config = {}) {
             started.push(target.key);
           }
           sendJson(res, { ok: true, started, errors });
+        },
+      });
+      webServer.register({
+        kind: 'exact',
+        path: '/dsh-security/clear',
+        handler: async (req, res) => {
+          // Destructive but local: same CSRF origin guard as /scan; no LLM
+          // cost involved, so no rate limit.
+          if (!sameOrigin(req)) {
+            sendJson(res, { ok: false, error: 'cross-origin request rejected' }, 403);
+            return;
+          }
+          let body = '';
+          for await (const chunk of req) body += chunk;
+          let parsed = {};
+          try {
+            parsed = JSON.parse(body || '{}');
+          } catch {
+            /* invalid body */
+          }
+          const all = parsed.all === true;
+          const keys = Array.isArray(parsed.plugins) ? parsed.plugins.map(String) : [];
+          if (!all && keys.length === 0) {
+            sendJson(res, { ok: false, error: 'specify { "all": true } or { "plugins": [...] }' }, 400);
+            return;
+          }
+          const cleared = clearRecords(keys, all);
+          sendJson(res, { ok: true, cleared: all ? 'all' : cleared });
         },
       });
       routesRegistered = true;

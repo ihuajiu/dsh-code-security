@@ -19,10 +19,13 @@ DSH 宿主门禁插件：**新插件安装时自动用本会话的大模型审�
   - `dsh_security_scan_plugins` — 批量审计（标识：预设 id / 包名 / 绝对路径，可 `force` 重扫）
   - `dsh_security_scan_status` — 查看所有已知插件的审计状态
 - **GUI 面板**：设置页新增「安全审计」分区（`settings.section`），展示每插件状态/最近
-  审计/备注，支持打开报告与「重新审计」。数据经门禁注册的 HTTP 端点提供：
+  审计/备注，支持打开报告、「重新审计」与**清除审计记录**（单个/全部，带确认）。
+  数据经门禁注册的 HTTP 端点提供：
   - `GET /dsh-security/status.json` — 每插件最新状态（状态为空时实时发现兜底）
   - `GET /dsh-security/report?id=<报告目录>` — 报告 markdown（仅允许已记录的报告目录）
   - `POST /dsh-security/scan` — 触发指定插件审计 `{ "plugins": ["preset:x", ...] }`
+  - `POST /dsh-security/clear` — 清除审计记录（含报告文件）：单个
+    `{ "plugins": [...] }` 或全部 `{ "all": true }`
 
 零依赖（仅 Node 内置模块 + 一个手写 client bundle）；消费宿主服务时全部
 `ctx.get()` 防御式访问，`apply()` 不抛错。

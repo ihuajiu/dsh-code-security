@@ -22,6 +22,7 @@ window.__ModuleLoader__.load({
 		const STATUS_URL = "/dsh-security/status.json";
 		const REPORT_URL = "/dsh-security/report?id=";
 		const SCAN_URL = "/dsh-security/scan";
+		const CLEAR_URL = "/dsh-security/clear";
 
 		const theme = {
 			label: "var(--dsw-alias-label-primary, #1a1a1a)",
@@ -79,6 +80,17 @@ window.__ModuleLoader__.load({
 				fontSize: "12.5px",
 				fontWeight: 500,
 				cursor: "pointer",
+			},
+			buttonDanger: {
+				border: "1px solid " + theme.border,
+				background: "transparent",
+				color: theme.danger,
+				borderRadius: "8px",
+				padding: "6px 12px",
+				fontSize: "12.5px",
+				fontWeight: 500,
+				cursor: "pointer",
+				transition: "background .12s ease",
 			},
 			stats: { display: "flex", alignItems: "stretch", gap: "10px" },
 			statCard: {
@@ -457,6 +469,24 @@ window.__ModuleLoader__.load({
 					});
 			}, [refresh]);
 
+			var clearRecords = useCallback(function (keys, all) {
+				var label = all ? "全部插件" : "该插件";
+				if (!window.confirm("确定清除" + label + "的审计记录？其报告文件与历史将一并删除，不可恢复。")) return;
+				fetch(CLEAR_URL, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(all ? { all: true } : { plugins: keys }),
+				})
+					.then(function (r) { return r.json(); })
+					.then(function () {
+						setOpen(null);
+						refresh();
+					})
+					.catch(function (e) {
+						setError("清除记录失败: " + String(e && e.message ? e.message : e));
+					});
+			}, [refresh]);
+
 			// ── derive view data ──────────────────────────────────────────────
 			var entries = [];
 			var counts = { completed: 0, failed: 0, running: 0, never: 0 };
@@ -511,6 +541,13 @@ window.__ModuleLoader__.load({
 					disabled: busy === e.key || st === "running",
 					onClick: function () { triggerScan(e.key); },
 				}, busy === e.key || st === "running" ? "审计中…" : "重新审计"));
+				actions.push(react.createElement("button", {
+					key: "clear",
+					style: styles.buttonDanger,
+					onMouseEnter: function (ev) { ev.currentTarget.style.background = theme.bgModule; },
+					onMouseLeave: function (ev) { ev.currentTarget.style.background = "transparent"; },
+					onClick: function () { clearRecords([e.key], false); },
+				}, "清除记录"));
 
 				var meta = [];
 				meta.push("最近审计: " + fmtTime(p.lastScanAt));
@@ -590,6 +627,8 @@ window.__ModuleLoader__.load({
 						react.createElement("p", { style: styles.subtitle },
 							"新插件安装后自动用本会话模型审计；审计会把插件源码发送给本会话的模型服务商，已审计且未变化的插件不会重复审计。")),
 					react.createElement("div", { style: styles.spacer }),
+					react.createElement("button", { style: styles.buttonDanger, onClick: function () { clearRecords([], true); }, disabled: allKeys.length === 0 },
+						"清除全部"),
 					react.createElement("button", { style: styles.buttonGhost, onClick: function () { if (allKeys.length > 0) triggerScan(allKeys); }, disabled: busy === "__all__" },
 						busy === "__all__" ? "审计中…" : "审计全部"),
 					react.createElement("button", { style: styles.button, onClick: refresh },
