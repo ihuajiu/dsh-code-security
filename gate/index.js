@@ -112,7 +112,19 @@ function redactSecrets(text) {
 }
 
 /**
- * Read a text file WITHOUT following a final-component symlink, using
+ * True when `p` (resolved+canonicalized) is strictly inside the reports root.
+ * Used both at scan start and AGAIN immediately before each report write, so a
+ * directory swapped to a symlink mid-scan cannot redirect the write outside
+ * the reports root (audit finding F1: TOCTOU between the initial containment
+ * check and writeFileSync after the long LLM/CLI run).
+ */
+function isInsideReports(reportsRoot, p) {
+  const canon = canonicalizePath(resolvePath(p));
+  const root = canonicalizePath(resolvePath(reportsRoot));
+  return canon === root || canon.startsWith(root + pathSep);
+}
+
+/** Read a text file WITHOUT following a final-component symlink, using
  * O_NOFOLLOW where the platform exposes it (POSIX). On Windows (no O_NOFOLLOW)
  * falls back to a plain read. Residual parent-directory swap races are an
  * inherent limitation (would require openat); the canonical-path reads already
@@ -137,6 +149,20 @@ function readFileSafe(p) {
     } finally {
       closeSync(fd);
     }
+  }
+  // No O_NOFOLLOW (Windows): reject a symlinked FINAL component explicitly —
+  // readFileSync would otherwise follow it (audit findings F2/F4). Parent-
+  // directory swap races remain an inherent limitation (would need openat);
+  // the canonical-path reads above already close the common window.
+  try {
+    if (lstatSync(p).isSymbolicLink()) {
+      const err = new Error('refusing to read a symlink: ' + p);
+      err.code = 'ELOOP';
+      throw err;
+    }
+  } catch (error) {
+    if (error && (error.code === 'ELOOP' || error.code === 'EMLINK')) throw error;
+    // missing file or other lstat failure -> fall through to the read below
   }
   return readFileSync(p, 'utf8');
 }
@@ -345,7 +371,13 @@ export function apply(ctx, config = {}) {
     return new Date().toISOString();
   }
   function tsForDir() {
-    return nowIso().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+    // Random suffix (F1): a non-guessable report directory name defeats a
+    // pre-planted symlink attack at a *predicted* path. Timestamps alone are
+    // predictable (seconds precision + known key), so the attacker could plant
+    // a symlink at the expected directory and have mkdirSync/writeFileSync
+    // follow it out of the reports root. The random component makes the next
+    // report dir unpredictable.
+    return nowIso().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19) + '_' + randomBytes(4).toString('hex');
   }
 
   function loadState() {
@@ -697,7 +729,10 @@ export function apply(ctx, config = {}) {
       scan.note = String(error && error.message ? error.message : error);
     }
     try {
-      writeFileSync(join(reportDir, 'runner.log'), 'command: ' + command + '\n\n' + output, { mode: 0o600 });
+      // Same write-time containment re-check as the llm engine (F1).
+      if (isInsideReports(join(cfg.stateDir, 'reports'), reportDir)) {
+        writeFileSync(join(reportDir, 'runner.log'), 'command: ' + command + '\n\n' + output, { mode: 0o600 });
+      }
     } catch {
       /* best-effort */
     }
@@ -880,8 +915,17 @@ export function apply(ctx, config = {}) {
       if (progressTimer !== null) clearInterval(progressTimer);
     }
     try {
-      writeFileSync(join(reportDir, 'report.md'), sanitizeReportHtml(report) + REPORT_FOOTER, { mode: 0o600 });
-      writeFileSync(join(reportDir, 'runner.log'), 'engine: llm\nprovider: ' + provider + '\nmodel: ' + model + '\ntarget: ' + info.root + '\nharvested chars: ' + harvested.length + '\nfinish: ' + finishText + (usageText ? '\nusage: ' + usageText : '') + (reasoning.length > 0 ? '\nreasoning chars: ' + reasoning.length : ''), { mode: 0o600 });
+      // Re-validate containment immediately before the write (F1): the initial
+      // check happened before the LLM run — a directory swapped to a symlink
+      // mid-scan must not redirect report.md outside the reports root.
+      const reportsRoot = join(cfg.stateDir, 'reports');
+      if (isInsideReports(reportsRoot, reportDir)) {
+        writeFileSync(join(reportDir, 'report.md'), sanitizeReportHtml(report) + REPORT_FOOTER, { mode: 0o600 });
+        writeFileSync(join(reportDir, 'runner.log'), 'engine: llm\nprovider: ' + provider + '\nmodel: ' + model + '\ntarget: ' + info.root + '\nharvested chars: ' + harvested.length + '\nfinish: ' + finishText + (usageText ? '\nusage: ' + usageText : '') + (reasoning.length > 0 ? '\nreasoning chars: ' + reasoning.length : ''), { mode: 0o600 });
+      } else {
+        scan.status = 'failed';
+        scan.note = 'report directory resolved outside the reports root at write time — report not saved';
+      }
     } catch {
       /* best-effort */
     }
@@ -889,7 +933,12 @@ export function apply(ctx, config = {}) {
 
   /** Collect a bounded, text-only view of a plugin's source files for the llm engine. */
   function harvestFiles(root) {
+    // Case-insensitive skip set (audit finding F7): Windows filesystems are
+    // case-insensitive, so a directory literally named `NODE_MODULES` (or
+    // `Dist`, `.GIT`, ...) would bypass a case-sensitive `has()` lookup and
+    // get harvested. Normalize every dir name to lowercase before matching.
     const skipDirs = new Set(['node_modules', '.git', '.hg', '.svn', 'dist', 'build', 'out', '.next', '__pycache__', 'coverage', '.dsh', 'bundled']);
+    const isSkippedDir = (name) => skipDirs.has(String(name).toLowerCase());
     const patterns = cfg.harvestExcludePatterns ?? SECRET_FILE_PATTERNS;
     const out = [];
     let total = 0;
@@ -918,7 +967,7 @@ export function apply(ctx, config = {}) {
       for (const entry of entries) {
         const full = join(dir, entry.name);
         if (entry.isDirectory()) {
-          if (!skipDirs.has(entry.name) && !entry.name.startsWith('.')) walk(full);
+          if (!isSkippedDir(entry.name) && !entry.name.startsWith('.')) walk(full);
         } else if (entry.isFile() && !entry.name.startsWith('.')) {
           // Never harvest secret-bearing files (F3): .env / *.pem / id_rsa /
           // credentials / secrets / service-account etc. stay on the host.
@@ -1188,6 +1237,9 @@ export function apply(ctx, config = {}) {
         'Batch-audit one or more plugins with the harness\'s own model (no external authentication) and return per-plugin results. Identifiers are an agent-preset id (e.g. codex-security) or a profile plugin package name (e.g. dsh-plugin-finder) — absolute paths are not accepted (path scans are disabled; only preset:/package: keys are valid). Each audit harvests the plugin source and produces a markdown report under the gate state dir (summary in summary.json).',
       parameters: {
         type: 'object',
+        // Reject unknown keys (audit finding F3): a prompt-injected model must
+        // not smuggle extra arguments (e.g. path-like fields) into the call.
+        additionalProperties: false,
         properties: {
           plugins: {
             type: 'array',
@@ -1324,6 +1376,22 @@ export function apply(ctx, config = {}) {
     res.setHeader('content-type', 'application/json; charset=utf-8');
     res.end(JSON.stringify(payload));
   };
+  // Cap request bodies (audit finding F6): /scan and /clear only ever need a
+  // tiny JSON array, so a multi-gigabyte body must not be buffered into memory.
+  const MAX_BODY_BYTES = 64 * 1024;
+  async function readBodyBounded(req, res) {
+    let body = '';
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        sendJson(res, { ok: false, error: 'request body too large (max ' + MAX_BODY_BYTES + ' bytes)' }, 413);
+        return null;
+      }
+      body += chunk;
+    }
+    return body;
+  }
   const summaryPayload = async () => {
     const state = loadState();
     const payload = { updatedAt: nowIso(), plugins: {} };
@@ -1466,8 +1534,8 @@ export function apply(ctx, config = {}) {
           // Rate limit: bound how often scans can be triggered to avoid
           // resource/billing exhaustion.
           if (!rateLimited(res, 'scan')) return;
-          let body = '';
-          for await (const chunk of req) body += chunk;
+          const body = await readBodyBounded(req, res);
+          if (body === null) return;
           let plugins = [];
           try {
             plugins = (JSON.parse(body || '{}').plugins ?? []);
@@ -1500,8 +1568,8 @@ export function apply(ctx, config = {}) {
             return;
           }
           if (!rateLimited(res, 'clear')) return;
-          let body = '';
-          for await (const chunk of req) body += chunk;
+          const body = await readBodyBounded(req, res);
+          if (body === null) return;
           let parsed = {};
           try {
             parsed = JSON.parse(body || '{}');
