@@ -389,7 +389,9 @@ window.__ModuleLoader__.load({
 						setOpen({ key: key, text: text });
 					})
 					.catch(function (e) {
-						setOpen({ key: key, text: "(加载报告失败: " + String(e && e.message ? e.message : e) + ")" });
+						var msg = e && e.message ? String(e.message) : String(e);
+						if (/404/.test(msg)) msg = "报告尚未生成（审计进行中或报告缺失）";
+						setOpen({ key: key, text: "(加载报告失败: " + msg + ")" });
 					});
 			}, [open]);
 
@@ -468,7 +470,7 @@ window.__ModuleLoader__.load({
 				var st = e.st;
 				var initial = (p.id || "?").charAt(0).toUpperCase();
 				var actions = [];
-				if (p.reportDir) {
+				if (p.reportDir && st !== "running") {
 					var isOpen = open !== null && open.key === e.key;
 					actions.push(react.createElement("button", {
 						key: "view",
@@ -481,9 +483,9 @@ window.__ModuleLoader__.load({
 				actions.push(react.createElement("button", {
 					key: "rescan",
 					style: styles.buttonPrimary,
-					disabled: busy === e.key,
+					disabled: busy === e.key || st === "running",
 					onClick: function () { triggerScan(e.key); },
-				}, busy === e.key ? "审计中…" : "重新审计"));
+				}, busy === e.key || st === "running" ? "审计中…" : "重新审计"));
 
 				var meta = [];
 				meta.push("最近审计: " + fmtTime(p.lastScanAt));
