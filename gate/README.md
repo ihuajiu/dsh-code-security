@@ -75,8 +75,9 @@ Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要
 | `ignorePrefixes` | `["@deepseek-ai/"]` | 按包名前缀忽略（出厂底座） |
 | `ignoreIds` | `[]` | 按预设 id / 包名精确忽略 |
 | `cliCommand` | `npx --yes @openai/codex-security` | CLI 引擎的调用 |
-| `stateDir` | `<DSH_HOME>/codex-security` | 状态/报告目录 |
+| `stateDir` | `<DSH_HOME>/dsh-security` | 状态/报告目录 |
 | `scanTimeoutMs` | `900000` | CLI 引擎超时（15 分钟） |
+| `allowPathTargetsOutsidePlugins` | `false` | 是否允许把**插件根目录之外**的路径作为扫描目标（默认拒绝，防止任意文件被采集并外发给模型） |
 | `maxHarvestChars` | `400000` | llm 引擎源码采集字符预算 |
 | `maxFileBytes` | `65536` | llm 引擎单文件上限（超出跳过） |
 | `maxOutputTokens` | `8000` | llm 引擎输出 token 预算（审计提示较大，预留报告空间） |
@@ -90,4 +91,15 @@ Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要
 - **默认（llm 引擎）**：无需任何外部认证；使用宿主 `llm` 服务（同会话模型路由，如
   deepseek-official / deepseek-v4-flash）。模型每次审计会读取目标插件源码。
 - 可选（cli 引擎）：`npx @openai/codex-security login` 或 `OPENAI_API_KEY`/`CODEX_API_KEY`。
-- 审计会读取目标插件全部源码并交给本地模型；请在可信环境中使用。
+
+### 数据流向与隐私（请先阅读）
+
+- **llm 引擎会把被审计插件的源码（有界采集，默认 ≤ 400K 字符）随提示词发送给本会话
+  配置的模型服务商**（默认 deepseek-official）。这是模型审计的工作方式，不是可选的
+  功能分支。请勿在含敏感/专有代码且不允许外发的环境中启用自动审计。
+- **关闭自动审计**：`autoScan: false`（停止轮询）；已发现插件的存量审计可手动触发
+  （面板「审计全部」或 `dsh_security_scan_plugins`）。
+- **不把源码发给模型**：只能用 `engine: 'cli'` 走 OpenAI Codex Security 官方扫描
+  （需其自身认证与网络，源码仍会交给 OpenAI 扫描管线）。
+- **路径目标受限**：扫描目标只能是指定插件根目录（预设/包目录）；其他绝对路径默认
+  拒绝，需要时由管理员设 `allowPathTargetsOutsidePlugins: true`（不推荐）。

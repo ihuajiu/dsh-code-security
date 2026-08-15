@@ -23,7 +23,7 @@
 // no manual cordis.patch.yml row is needed.
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
-import { join, dirname, relative } from 'node:path';
+import { join, dirname, relative, resolve as resolvePath, sep as pathSep } from 'node:path';
 import { homedir } from 'node:os';
 
 export const name = 'dsh-security-gate';
@@ -56,6 +56,11 @@ export function apply(ctx, config = {}) {
     scanTimeoutMs: config.scanTimeoutMs ?? 900000,
     maxParallel: config.maxParallel ?? 2,
     profileDirs: config.profileDirs,
+    // Path-type scan targets (dsh_security_scan_plugins / POST scan) must
+    // resolve inside a discovered plugin root unless an admin explicitly opts
+    // out; prevents arbitrary-file reads being harvested and shipped to the
+    // model provider.
+    allowPathTargetsOutsidePlugins: config.allowPathTargetsOutsidePlugins === true,
     sandboxMode: config.sandboxMode, // undefined = executor default (cli engine only)
     maxHarvestChars: config.maxHarvestChars ?? 400000,
     maxFileBytes: config.maxFileBytes ?? 65536,
@@ -87,10 +92,21 @@ export function apply(ctx, config = {}) {
   // writeSummary/saveState before these lines execute, and a const arrow would
   // sit in the temporal dead zone there ("Cannot access 'nowIso' before
   // initialization" on first run, when summary.json does not exist yet).
+  /** Shell dialect of the host executor: bash on POSIX, pwsh on win32. */
+  function shellDialect() {
+    return typeof process !== 'undefined' && process.platform === 'win32' ? 'pwsh' : 'bash';
+  }
+  /**
+   * Quote one value as a literal shell word so paths can never become shell
+   * syntax. Single quotes make backticks, `$(...)`, `$VAR`, globs, `;`, `|`,
+   * `&`, and quotes inert on both executors:
+   *  - bash (`bash -c`): embed `'` as `'\''` (POSIX-correct).
+   *  - pwsh (`pwsh -Command`): embed `'` by doubling (`''`).
+   */
   function quote(value) {
     const s = String(value);
-    if (s.length === 0) return '""';
-    return /[\s"'$`]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s;
+    if (shellDialect() === 'pwsh') return `'${s.replace(/'/g, "''")}'`;
+    return `'${s.replace(/'/g, "'\\''")}'`;
   }
   function safeKey(key) {
     return key.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -587,9 +603,26 @@ export function apply(ctx, config = {}) {
           continue;
         }
       }
-      // absolute path
+      // absolute path — must resolve inside a discovered plugin root unless
+      // config explicitly allows external paths. An unconstrained path target
+      // would let any scan harvest arbitrary files outside the plugin tree and
+      // ship them to the model provider.
       if (/^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('/')) {
-        out.push({ key: 'path:' + trimmed, kind: 'path', id: trimmed, root: trimmed });
+        if (cfg.allowPathTargetsOutsidePlugins) {
+          out.push({ key: 'path:' + trimmed, kind: 'path', id: trimmed, root: trimmed });
+          continue;
+        }
+        const resolved = resolvePath(trimmed);
+        const keyed = (p) => (typeof process !== 'undefined' && process.platform === 'win32' ? p.toLowerCase() : p);
+        const inside = [...found.values()].some((info) => {
+          const root = keyed(resolvePath(info.root));
+          return keyed(resolved) === root || keyed(resolved).startsWith(root + pathSep);
+        });
+        if (inside) {
+          out.push({ key: 'path:' + trimmed, kind: 'path', id: trimmed, root: trimmed });
+        } else {
+          errors.push(trimmed + ' (path outside all discovered plugin roots; scan a preset/package root, or set the plugin config allowPathTargetsOutsidePlugins: true)');
+        }
         continue;
       }
       // preset id
@@ -717,7 +750,8 @@ export function apply(ctx, config = {}) {
       payload.plugins[key] = {
         id: entry.id,
         kind: entry.kind,
-        root: entry.root,
+        // `root` is intentionally omitted from the HTTP view: it leaks
+        // absolute filesystem layout. State.json keeps it for internal use.
         version: entry.version,
         status: last ? last.status : 'never',
         lastScanAt: last ? last.at : null,
@@ -736,7 +770,6 @@ export function apply(ctx, config = {}) {
           payload.plugins[info.key] = {
             id: info.id,
             kind: info.kind,
-            root: info.root,
             version: info.version,
             status: 'never',
             lastScanAt: null,
@@ -777,6 +810,16 @@ export function apply(ctx, config = {}) {
             }
           }
           if (!target) {
+            res.statusCode = 404;
+            res.end('report not found');
+            return;
+          }
+          // Defense-in-depth: reportDir values are exact matches against stored
+          // scan records, but never serve a path outside the reports root even
+          // if state.json was tampered with.
+          const reportsRoot = resolvePath(join(cfg.stateDir, 'reports'));
+          const targetPath = resolvePath(target);
+          if (targetPath !== reportsRoot && !targetPath.startsWith(reportsRoot + pathSep)) {
             res.statusCode = 404;
             res.end('report not found');
             return;
