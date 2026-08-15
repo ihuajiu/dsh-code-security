@@ -164,6 +164,10 @@ export function apply(ctx, config = {}) {
     maxOutputTokens: config.maxOutputTokens ?? 32000,
     llmTimeoutMs: config.llmTimeoutMs ?? 240000,
     tickWatchdogMs: config.tickWatchdogMs ?? 180000,
+    // A scan left in 'running' state longer than this (e.g. the process died
+    // mid-scan) is healed to 'failed' so the UI status can update and the
+    // plugin can be re-audited. Default: max(llm, cli) timeouts + margin.
+    stuckScanTimeoutMs: config.stuckScanTimeoutMs ?? 960000,
     // DeepSeek reasoning models burn the output budget on reasoning and then
     // stop without a final answer; for one-shot bounded audits we disable
     // thinking so the whole budget goes to the report text.
@@ -193,6 +197,9 @@ export function apply(ctx, config = {}) {
   } catch {
     /* best-effort */
   }
+  // Heal scans the PREVIOUS process left in 'running' state (zombies) as soon
+  // as this process mounts, so the panel never shows a forever-running status.
+  healStuckScans(loadState());
 
   // ── tiny helpers ──────────────────────────────────────────────────────────
   // Deliberately function declarations (hoisted): the boot warm-up above calls
@@ -265,6 +272,27 @@ export function apply(ctx, config = {}) {
       writeFileSync(summaryPath, JSON.stringify({ updatedAt: nowIso(), plugins }, null, 2), { mode: 0o600 });
     } catch (error) {
       console.error('[dsh-security-gate] could not write summary: ' + String(error));
+    }
+  }
+
+  /** Heal scans stuck in 'running' (process died mid-scan): mark them failed so
+   *  the panel status updates and the plugin can be re-audited. */
+  function healStuckScans(state) {
+    let changed = false;
+    for (const entry of Object.values(state.plugins)) {
+      const last = entry.lastScan;
+      if (!last || last.status !== 'running') continue;
+      const age = Date.now() - new Date(last.at).getTime();
+      if (isNaN(age) || age > cfg.stuckScanTimeoutMs) {
+        last.status = 'failed';
+        last.exitCode = null;
+        last.note = 'interrupted (previous run left it running)';
+        changed = true;
+      }
+    }
+    if (changed) {
+      saveState(state);
+      writeSummary(state);
     }
   }
 
@@ -738,6 +766,7 @@ export function apply(ctx, config = {}) {
       if (!routesRegistered) registerWebRoutes();
       const found = await discoverPlugins();
       const state = loadState();
+      healStuckScans(state);
       const firstRun = Object.keys(state.plugins).length === 0;
       const rescanFailed = !bootPassDone; // first pass after boot retries previously failed scans
       const toQueue = [];
