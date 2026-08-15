@@ -28,6 +28,12 @@ import { homedir } from 'node:os';
 
 export const name = 'dsh-security-gate';
 
+/** Attribution footer appended to every generated audit report. */
+const REPORT_FOOTER =
+  '\n\n---\n\n' +
+  '*本报告由 dsh-code-security（安全审计门禁）自动生成，仅供参考；结论请结合人工复核。*\n\n' +
+  '*Powered by [dsh.so](https://dsh.so) · © 2026 dsh.so · Apache-2.0*\n';
+
 export function apply(ctx, config = {}) {
   const dshHome = config.dshHome ?? join(homedir(), '.dsh');
   const cfg = {
@@ -419,7 +425,7 @@ export function apply(ctx, config = {}) {
       clearTimeout(abortTimer);
     }
     try {
-      writeFileSync(join(reportDir, 'report.md'), report, 'utf8');
+      writeFileSync(join(reportDir, 'report.md'), report + REPORT_FOOTER, 'utf8');
       writeFileSync(join(reportDir, 'runner.log'), 'engine: llm\nprovider: ' + provider + '\nmodel: ' + model + '\ntarget: ' + info.root + '\nharvested chars: ' + harvested.length + '\nfinish: ' + finishText + (usageText ? '\nusage: ' + usageText : '') + (reasoning.length > 0 ? '\nreasoning chars: ' + reasoning.length : ''), 'utf8');
     } catch {
       /* best-effort */

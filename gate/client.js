@@ -80,7 +80,7 @@ window.__ModuleLoader__.load({
 				fontWeight: 500,
 				cursor: "pointer",
 			},
-			stats: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "10px" },
+			stats: { display: "flex", alignItems: "stretch", gap: "10px" },
 			statCard: {
 				border: "1px solid " + theme.borderL1,
 				background: theme.bgCard,
@@ -89,9 +89,14 @@ window.__ModuleLoader__.load({
 				display: "flex",
 				flexDirection: "column",
 				gap: "2px",
+				flex: "1 1 0",
+				minWidth: 0,
 			},
 			statValue: { fontSize: "20px", fontWeight: 700, lineHeight: 1.1 },
 			statLabel: { fontSize: "11.5px", color: theme.label3 },
+			footer: { marginTop: "8px", fontSize: "11.5px", color: theme.label3, display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" },
+			footerLink: { color: theme.accent, textDecoration: "none" },
+			footerLogo: { display: "block", flexShrink: 0, borderRadius: "4px" },
 			list: { display: "flex", flexDirection: "column", gap: "10px" },
 			card: {
 				border: "1px solid " + theme.border,
@@ -408,7 +413,21 @@ window.__ModuleLoader__.load({
 							react.createElement("p", { style: styles.reportTitle }, "审计报告"),
 							react.createElement("button", { style: styles.buttonGhost, onClick: function () { setReport(null); } }, "关闭")),
 						react.createElement("pre", { style: styles.pre }, report))
-					: null
+					: null,
+				react.createElement("div", { style: styles.footer },
+					react.createElement("svg", { width: 14, height: 14, viewBox: "0 0 32 32", "aria-hidden": true, style: styles.footerLogo },
+						react.createElement("defs", null,
+							react.createElement("linearGradient", { id: "dshso-logo-g", x1: 0, y1: 0, x2: 1, y2: 1 },
+								react.createElement("stop", { offset: "0", stopColor: "#16a34a" }),
+								react.createElement("stop", { offset: "1", stopColor: "#22c55e" }))),
+						react.createElement("rect", { width: 32, height: 32, rx: 8, fill: "#0b0f0a" }),
+						react.createElement("rect", { x: 1, y: 1, width: 30, height: 30, rx: 7, fill: "none", stroke: "rgba(34,211,238,.22)" }),
+						react.createElement("rect", { x: 5.5, y: 8, width: 12, height: 12, rx: 3, fill: "url(#dshso-logo-g)" }),
+						react.createElement("rect", { x: 15, y: 15, width: 12, height: 12, rx: 3, fill: "#22d3ee", opacity: 0.9 }),
+						react.createElement("rect", { x: 9, y: 17.5, width: 6, height: 6, rx: 2, fill: "#4ade80", opacity: 0.6 })),
+					"dsh-code-security · © 2026 dsh.so · Apache-2.0",
+					react.createElement("a", { href: "https://dsh.so", target: "_blank", rel: "noreferrer", style: styles.footerLink },
+						"Powered by dsh.so"))
 			);
 		}
 

@@ -170,3 +170,11 @@ openai-code-security/
   让模型按技能用自身工具做完整审计（支持子代理并行、逐文件验证）。
 - CLI 引擎在 Windows 宿主上需要 `sandboxMode: danger-full-access`（`workspace-write`
   沙箱的 ACL 临时根与 home workspace 重叠不可用）。
+
+---
+
+<p align="center">
+  <img src="assets/dshso-logo.svg" width="22" height="22" alt="dsh.so" style="vertical-align: middle">&nbsp;
+  <b>dsh-code-security</b> 由 <a href="https://dsh.so">DeepSeek Harness</a> 生态驱动 ·
+  © 2026 dsh.so · Apache-2.0 · <b>Powered by <a href="https://dsh.so">dsh.so</a></b>
+</p>
