@@ -178,15 +178,22 @@ function readFileSafe(p) {
  */
 function sanitizeReportHtml(text) {
   const DANGEROUS = /<\/?(script|iframe|object|embed|img|svg|link|meta|style|form|math|video|audio|base|template)(\s[^>]*)?>|<!--/gi;
-  const out = String(text).replace(DANGEROUS, (m) => m.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+  const clean = (t) => t.replace(DANGEROUS, (m) => m.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+  const s = String(text);
   // The bilingual split marker IS a real HTML comment and must survive
-  // verbatim: the panel splits the report on `<!-- REPORT_ZH -->`. The
-  // dangerous-`<!--` rule above would otherwise escape it to
-  // `&lt;!-- REPORT_ZH -->` and silently break the split, leaving the Chinese
-  // half glued to the bottom of the English view. Restore the canonical form
-  // (an escaped marker can only come from this sanitizer, since the model is
-  // instructed to emit the marker exactly).
-  return out.replace(/&lt;!-- REPORT_ZH -->/g, '<!-- REPORT_ZH -->');
+  // verbatim: the panel splits the report on `<!-- REPORT_ZH -->`. Protect
+  // ONLY the FIRST canonical occurrence (the real English→Chinese boundary)
+  // and sanitize the text before/after it separately. Previously the whole
+  // output was sanitized and then every escaped marker was restored with a
+  // global replace — if the model quoted `<!-- REPORT_ZH -->` anywhere in the
+  // body (e.g. as a prompt-injection example inside a finding), that quote
+  // became a SECOND live marker, and the panel (splitting on the LAST
+  // occurrence) cut the Chinese half mid-section. With this version the only
+  // live marker is the first one; any marker text inside the body stays
+  // escaped (`&lt;!-- REPORT_ZH -->`) and can never re-activate.
+  const idx = s.indexOf('<!-- REPORT_ZH -->');
+  if (idx < 0) return clean(s);
+  return clean(s.slice(0, idx)) + '<!-- REPORT_ZH -->' + clean(s.slice(idx + '<!-- REPORT_ZH -->'.length));
 }
 
 /**
@@ -789,7 +796,9 @@ export function apply(ctx, config = {}) {
       'Then append a complete CHINESE translation of the same report (same structure and headings, ' +
       'translated, not summarized). The marker line <!-- REPORT_ZH --> must appear EXACTLY ONCE, ' +
       'on its own line immediately BEFORE the Chinese translation — never after an intro sentence ' +
-      'and never anywhere inside the English part.\n\n' +
+      'and never anywhere inside the English part. IMPORTANT: never quote, mention, or use the marker ' +
+      'string <!-- REPORT_ZH --> anywhere inside the report body itself (not in a finding, not in ' +
+      'code fences, not as an example) — the marker is a structural separator, not content.\n\n' +
       // Delimit the harvested (untrusted) content so the model can never
       // mistake source text for instructions (F10).
       '<source_code>\n' + harvested + '\n</source_code>\n';

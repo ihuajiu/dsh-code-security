@@ -341,20 +341,37 @@ window.__ModuleLoader__.load({
 		 *  generator marker. Handles both the canonical form and the
 		 *  HTML-escaped form (`&lt;!-- REPORT_ZH -->`) that older gate
 		 *  versions may have written to disk, so already-generated reports
-		 *  still split correctly. Splits on the LAST occurrence: flash models
-		 *  sometimes drop a stray marker after an intro sentence, which would
-		 *  otherwise leave the English view empty. zh is null when the model
+		 *  still split correctly. Prefers the FIRST marker whose tail is CJK:
+		 *  that is the real English→Chinese boundary. (The model is told to
+		 *  emit the marker exactly once, but it sometimes quotes the marker
+		 *  string inside a finding — e.g. as a prompt-injection example — and
+		 *  the sanitizer keeps only the first live occurrence. Splitting on
+		 *  the LAST occurrence would then cut the Chinese half mid-section.
+		 *  A CJK-checked first marker avoids that while still tolerating a
+		 *  stray marker after an intro sentence.) zh is null when the model
 		 *  produced no marker. */
 		function splitReport(text) {
 			var s = String(text || "");
-			var idx = s.lastIndexOf("<!-- REPORT_ZH -->");
-			var markerLen = "<!-- REPORT_ZH -->".length;
-			if (idx < 0) {
-				idx = s.lastIndexOf("&lt;!-- REPORT_ZH -->");
-				markerLen = "&lt;!-- REPORT_ZH -->".length;
+			var canonical = "<!-- REPORT_ZH -->";
+			var escaped = "&lt;!-- REPORT_ZH -->";
+			var lastCanon = s.lastIndexOf(canonical);
+			var lastEscaped = s.lastIndexOf(escaped);
+			var marker = null;
+			var pos = -1;
+			// Scan every canonical occurrence; pick the first one whose tail
+			// contains CJK. If none qualifies (no Chinese translation at all),
+			// fall back to the last canonical / escaped occurrence.
+			var searchFrom = 0;
+			for (;;) {
+				var i = s.indexOf(canonical, searchFrom);
+				if (i < 0) break;
+				if (hasCjk(s.slice(i + canonical.length))) { marker = canonical; pos = i; break; }
+				searchFrom = i + canonical.length;
 			}
-			if (idx < 0) return { en: s, zh: null };
-			return { en: s.slice(0, idx), zh: s.slice(idx + markerLen) };
+			if (pos < 0 && lastEscaped >= 0) { marker = escaped; pos = lastEscaped; }
+			if (pos < 0 && lastCanon >= 0) { marker = canonical; pos = lastCanon; }
+			if (pos < 0 || marker === null) return { en: s, zh: null };
+			return { en: s.slice(0, pos), zh: s.slice(pos + marker.length) };
 		}
 		/** True when a string contains CJK characters (a real Chinese translation). */
 		function hasCjk(s) {
