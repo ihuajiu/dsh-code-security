@@ -722,6 +722,20 @@ export function apply(ctx, config = {}) {
       scan.note = 'engine "cli" requires an explicit sandboxMode (e.g. "workspace-write"); refusing to run the CLI unconfined';
       return;
     }
+    // Loud warning when the CLI runs unconfined (round 7 finding 1): the CLI
+    // engine is the most privileged operation the gate performs (npx downloads
+    // and executes a package), so `danger-full-access` — which disables
+    // confinement — must never be silently accepted. The gate still runs it
+    // (Windows host shells lack a workspace-write sandbox, so this is a
+    // documented, admin-chosen trade-off), but the operator is told each time.
+    if (cfg.sandboxMode === 'danger-full-access') {
+      console.warn(
+        '[dsh-security-gate] WARNING: CLI engine scan of ' + info.key + ' runs with sandboxMode ' +
+          JSON.stringify(cfg.sandboxMode) + ' (unconfined, full host privileges). Only continue if you ' +
+          'explicitly trust this CLI package and the scanned plugin; prefer "workspace-write" where the ' +
+          'platform provides it.'
+      );
+    }
     const shell = ctx.get('shell');
     if (shell === undefined) {
       scan.status = 'failed';

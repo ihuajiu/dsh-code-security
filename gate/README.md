@@ -63,6 +63,9 @@ bundle 行产生重复 entry id（loader 直接报错）。
 
 （`sandboxMode: danger-full-access` 仅 `engine: 'cli'` 时需要——宿主级 shell 在本机
 Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要它。）
+**⚠️ `danger-full-access` = 非受限执行**：CLI 引擎会用宿主用户权限运行
+`npx`（从 npm 下载并执行包），该模式等于完全信任该 CLI 包与被扫插件。门禁每次
+在该模式下扫描都会打强警告；仅在明确信任时使用，且应知晓其影响。
 组合改动在 DSH 重启后生效（补丁不会在当前进程热重载）。
 
 ## 配置（patch 行的 config）
