@@ -77,7 +77,6 @@ Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要
 | `cliCommand` | `npx --yes @openai/codex-security` | CLI 引擎的调用 |
 | `stateDir` | `<DSH_HOME>/dsh-security` | 状态/报告目录 |
 | `scanTimeoutMs` | `900000` | CLI 引擎超时（15 分钟） |
-| `allowPathTargetsOutsidePlugins` | `false` | 是否允许把**插件根目录之外**的路径作为扫描目标（默认拒绝，防止任意文件被采集并外发给模型） |
 | `maxHarvestChars` | `400000` | llm 引擎源码采集字符预算 |
 | `maxFileBytes` | `65536` | llm 引擎单文件上限（超出跳过） |
 | `maxOutputTokens` | `8000` | llm 引擎输出 token 预算（审计提示较大，预留报告空间） |
@@ -104,11 +103,13 @@ Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要
   （面板「审计全部」或 `dsh_security_scan_plugins`）。
 - **不把源码发给模型**：只能用 `engine: 'cli'` 走 OpenAI Codex Security 官方扫描
   （需其自身认证与网络，源码仍会交给 OpenAI 扫描管线）。
-- **路径目标受限**：扫描目标只能是指定插件根目录（预设/包目录），且按**符号链接规范化**
-  路径校验（插件目录内的符号链接无法指向外部文件）；其他绝对路径默认拒绝，需要时由
-  管理员设 `allowPathTargetsOutsidePlugins: true`（不推荐）。
+- **路径目标受限（无逃生口）**：扫描目标**始终只能**是指定插件根目录（预设/包目录），
+  且按**符号链接规范化**路径校验（插件目录内的符号链接无法指向外部文件）；插件根目录
+  之外的任何绝对路径一律拒绝。
 - **密钥文件永不外发**：采集阶段直接跳过 `.env*`、`*.pem`、`*.key`、`id_rsa`、
   `credentials.json`、`secrets.*` 等敏感文件（点开头文件本就排除）；其余文本在发给
   模型前还会做**行内密钥脱敏**（AWS/`sk-`/GitHub token、私钥块、`password=` 等）。
-- **本地端点限流**：`POST /dsh-security/scan` 默认 10 次/10 秒、单请求最多 50 个目标
-  （服务绑定本机 localhost）。
+- **本地端点**：`POST /dsh-security/scan` 默认 10 次/10 秒、单请求最多 50 个目标，
+  且校验 `Origin` 拒绝跨源浏览器请求（CSRF）；服务绑定本机 localhost。
+- **状态目录权限**：`<stateDir>` 与报告目录按 `0700` 创建，`state.json`/
+  `summary.json`/`report.md`/`runner.log` 按 `0600` 写入（POSIX）。

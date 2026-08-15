@@ -207,7 +207,12 @@ window.__ModuleLoader__.load({
 		// mount the result via dangerouslySetInnerHTML (no user HTML survives
 		// the escape pass).
 		function mdEscape(s) {
-			return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+			return String(s)
+				.replace(/&/g, "&amp;")
+				.replace(/</g, "&lt;")
+				.replace(/>/g, "&gt;")
+				.replace(/"/g, "&quot;")
+				.replace(/'/g, "&#39;");
 		}
 		function mdInline(s) {
 			return s

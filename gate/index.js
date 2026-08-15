@@ -114,10 +114,8 @@ export function apply(ctx, config = {}) {
     maxParallel: config.maxParallel ?? 2,
     profileDirs: config.profileDirs,
     // Path-type scan targets (dsh_security_scan_plugins / POST scan) must
-    // resolve inside a discovered plugin root unless an admin explicitly opts
-    // out; prevents arbitrary-file reads being harvested and shipped to the
-    // model provider.
-    allowPathTargetsOutsidePlugins: config.allowPathTargetsOutsidePlugins === true,
+    // ALWAYS resolve inside a discovered plugin root — no escape hatch — so
+    // arbitrary files can never be harvested and shipped to the model provider.
     sandboxMode: config.sandboxMode, // undefined = executor default (cli engine only)
     maxHarvestChars: config.maxHarvestChars ?? 400000,
     maxFileBytes: config.maxFileBytes ?? 65536,
@@ -138,14 +136,14 @@ export function apply(ctx, config = {}) {
   };
   // Validate the CLI engine command (F4): it is admin config, but reject shell
   // metacharacters so a misconfigured value cannot become an arbitrary command.
-  if (typeof cfg.cliCommand === 'string' && /[;&|`$<>()]/.test(cfg.cliCommand)) {
+  if (typeof cfg.cliCommand === 'string' && /[;&|`$<>()%^]/.test(cfg.cliCommand)) {
     console.error(
       '[dsh-security-gate] cliCommand contains shell metacharacters (' + JSON.stringify(cfg.cliCommand) +
         ') — refusing it and falling back to the default.'
     );
     cfg.cliCommand = 'npx --yes @openai/codex-security';
   }
-  mkdirSync(cfg.stateDir, { recursive: true });
+  mkdirSync(cfg.stateDir, { recursive: true, mode: 0o700 });
 
   const statePath = join(cfg.stateDir, 'state.json');
   const summaryPath = join(cfg.stateDir, 'summary.json');
@@ -201,7 +199,7 @@ export function apply(ctx, config = {}) {
   }
   function saveState(state) {
     try {
-      writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf8');
+      writeFileSync(statePath, JSON.stringify(state, null, 2), { mode: 0o600 });
     } catch (error) {
       console.error('[dsh-security-gate] could not write state: ' + String(error));
     }
@@ -220,7 +218,7 @@ export function apply(ctx, config = {}) {
           reportDir: entry.lastScan ? entry.lastScan.reportDir : null,
         };
       }
-      writeFileSync(summaryPath, JSON.stringify({ updatedAt: nowIso(), plugins }, null, 2), 'utf8');
+      writeFileSync(summaryPath, JSON.stringify({ updatedAt: nowIso(), plugins }, null, 2), { mode: 0o600 });
     } catch (error) {
       console.error('[dsh-security-gate] could not write summary: ' + String(error));
     }
@@ -366,7 +364,7 @@ export function apply(ctx, config = {}) {
 
     const reportDir = join(cfg.stateDir, 'reports', safeKey(info.key) + '_' + tsForDir());
     try {
-      mkdirSync(reportDir, { recursive: true });
+      mkdirSync(reportDir, { recursive: true, mode: 0o700 });
     } catch {
       /* report dir is best-effort */
     }
@@ -421,7 +419,7 @@ export function apply(ctx, config = {}) {
       scan.note = String(error && error.message ? error.message : error);
     }
     try {
-      writeFileSync(join(reportDir, 'runner.log'), 'command: ' + command + '\n\n' + output, 'utf8');
+      writeFileSync(join(reportDir, 'runner.log'), 'command: ' + command + '\n\n' + output, { mode: 0o600 });
     } catch {
       /* best-effort */
     }
@@ -529,8 +527,8 @@ export function apply(ctx, config = {}) {
       clearTimeout(abortTimer);
     }
     try {
-      writeFileSync(join(reportDir, 'report.md'), report + REPORT_FOOTER, 'utf8');
-      writeFileSync(join(reportDir, 'runner.log'), 'engine: llm\nprovider: ' + provider + '\nmodel: ' + model + '\ntarget: ' + info.root + '\nharvested chars: ' + harvested.length + '\nfinish: ' + finishText + (usageText ? '\nusage: ' + usageText : '') + (reasoning.length > 0 ? '\nreasoning chars: ' + reasoning.length : ''), 'utf8');
+      writeFileSync(join(reportDir, 'report.md'), report + REPORT_FOOTER, { mode: 0o600 });
+      writeFileSync(join(reportDir, 'runner.log'), 'engine: llm\nprovider: ' + provider + '\nmodel: ' + model + '\ntarget: ' + info.root + '\nharvested chars: ' + harvested.length + '\nfinish: ' + finishText + (usageText ? '\nusage: ' + usageText : '') + (reasoning.length > 0 ? '\nreasoning chars: ' + reasoning.length : ''), { mode: 0o600 });
     } catch {
       /* best-effort */
     }
@@ -572,24 +570,33 @@ export function apply(ctx, config = {}) {
           // Never harvest secret-bearing files (F3): .env / *.pem / id_rsa /
           // credentials / secrets / service-account etc. stay on the host.
           if (matchesSecretName(entry.name, patterns)) continue;
-          // A file that resolves outside the plugin root (symlinked) is skipped.
-          if (outsideRoot(full)) continue;
+          // A file that resolves outside the plugin root (symlinked) is skipped,
+          // and the read below uses the CANONICAL path — the check and the read
+          // operate on the same resolved target, so swapping a symlink between
+          // them cannot redirect the read (F6).
+          let canon;
+          try {
+            canon = canonicalizePath(full);
+          } catch {
+            continue;
+          }
+          if (outsideRoot(canon)) continue;
           let st;
           try {
-            st = statSync(full);
+            st = statSync(canon);
           } catch {
             continue;
           }
           if (!st.size || st.size > cfg.maxFileBytes) continue;
           let text;
           try {
-            text = readFileSync(full, 'utf8');
+            text = readFileSync(canon, 'utf8');
           } catch {
             continue;
           }
           if (text.includes('\u0000')) continue; // binary
           if (cfg.redactSecrets) text = redactSecrets(text);
-          const rel = relative(canonRoot, canonicalizePath(full)) || entry.name;
+          const rel = relative(canonRoot, canon) || entry.name;
           if (total + text.length > cfg.maxHarvestChars) {
             out.push('\n[file omitted: ' + rel + ' exceeds harvest budget]');
             continue;
@@ -704,15 +711,11 @@ export function apply(ctx, config = {}) {
           continue;
         }
       }
-      // absolute path — must resolve inside a discovered plugin root unless
-      // config explicitly allows external paths. An unconstrained path target
-      // would let any scan harvest arbitrary files outside the plugin tree and
-      // ship them to the model provider.
+      // absolute path — must ALWAYS resolve inside a discovered plugin root
+      // (canonicalized through symlinks). An unconstrained path target would
+      // let any scan harvest arbitrary files outside the plugin tree and ship
+      // them to the model provider.
       if (/^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('/')) {
-        if (cfg.allowPathTargetsOutsidePlugins) {
-          out.push({ key: 'path:' + trimmed, kind: 'path', id: trimmed, root: trimmed });
-          continue;
-        }
         const resolved = canonicalizePath(resolvePath(trimmed));
         const keyed = (p) => (typeof process !== 'undefined' && process.platform === 'win32' ? p.toLowerCase() : p);
         const inside = [...found.values()].some((info) => {
@@ -722,7 +725,7 @@ export function apply(ctx, config = {}) {
         if (inside) {
           out.push({ key: 'path:' + trimmed, kind: 'path', id: trimmed, root: trimmed });
         } else {
-          errors.push(trimmed + ' (path outside all discovered plugin roots; scan a preset/package root, or set the plugin config allowPathTargetsOutsidePlugins: true)');
+          errors.push(trimmed + ' (path outside all discovered plugin roots; scan a preset/package root only)');
         }
         continue;
       }
@@ -919,8 +922,8 @@ export function apply(ctx, config = {}) {
           // Defense-in-depth: reportDir values are exact matches against stored
           // scan records, but never serve a path outside the reports root even
           // if state.json was tampered with.
-          const reportsRoot = resolvePath(join(cfg.stateDir, 'reports'));
-          const targetPath = resolvePath(target);
+          const reportsRoot = canonicalizePath(resolvePath(join(cfg.stateDir, 'reports')));
+          const targetPath = canonicalizePath(resolvePath(target));
           if (targetPath !== reportsRoot && !targetPath.startsWith(reportsRoot + pathSep)) {
             res.statusCode = 404;
             res.end('report not found');
@@ -941,6 +944,24 @@ export function apply(ctx, config = {}) {
         kind: 'exact',
         path: '/dsh-security/scan',
         handler: async (req, res) => {
+          // CSRF guard (F10): the settings panel is same-origin, so a
+          // cross-origin browser POST (malicious page) is rejected outright.
+          // Origin-less requests (curl, local tooling) still hit the rate
+          // limit below.
+          const origin = req.headers && req.headers.origin;
+          const host = req.headers && req.headers.host;
+          if (origin && host) {
+            let sameOrigin = false;
+            try {
+              sameOrigin = new URL(String(origin)).host === String(host);
+            } catch {
+              sameOrigin = false;
+            }
+            if (!sameOrigin) {
+              sendJson(res, { ok: false, error: 'cross-origin request rejected' }, 403);
+              return;
+            }
+          }
           // Rate limit (F1): the endpoint is unauthenticated on localhost, so
           // bound how often scans can be triggered to avoid resource/billing
           // exhaustion.
