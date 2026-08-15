@@ -234,13 +234,26 @@ SQL/NoSQL 注入、XSS、缺失认证/授权、越权访问与 IDOR、路径穿�
 
 ## 卸载
 
-- **预设**：删除 `~/.dsh/.agent-presets/dsh-security/`。
-- **门禁**：`dsh plugin --profile web remove '@dsh.so/dsh-security-gate'`（PowerShell
-  里作用域名必须加引号，否则 `@dsh` 会被当成 splatting 语法）；若
-  `~/.dsh/profiles/web/cordis.patch.yml` 里残留旧版手动行（`dsh-security-gate`），一并删掉。
+**一条命令**（与安装对称：清预设 + 门禁 + 状态/缓存，幂等可重跑）：
 
-> 从旧包名 `dsh-security-gate` 升级：先 `dsh plugin --profile web remove dsh-security-gate`，
-> 再按安装章节重新安装即可（install 脚本会自动清理旧配置行）。
+```powershell
+# Windows：在线或本地均可
+irm https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/uninstall.ps1 | iex
+# 或本地：.\uninstall.ps1
+```
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/uninstall.sh | bash
+```
+
+脚本会：从**所有** profile 移除门禁（`dsh plugin remove` + 孤儿 junction + 旧手动行 +
+manifest 防御清理）、删除 `dsh-security` 预设、删除 `<DSH_HOME>/dsh-security` 状态/报告、
+删除在线安装缓存 `~/.dsh/cache/dsh-code-security`。
+
+手动（等价操作）：删除 `~/.dsh/.agent-presets/dsh-security/`；
+`dsh plugin --profile web remove '@dsh.so/dsh-security-gate'`（PowerShell 里作用域名必须
+加引号，否则 `@dsh` 会被当成 splatting 语法）；删除 `<DSH_HOME>/dsh-security`。
 
 ## 许可证、归属与命名
 
