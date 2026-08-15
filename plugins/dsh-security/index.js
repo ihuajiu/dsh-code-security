@@ -40,9 +40,9 @@
 // ToolDefinitions with raw JSON-Schema parameters.
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve as resolvePath, sep as pathSep } from 'node:path';
+import { resolve as resolvePath, sep as pathSep, dirname, basename } from 'node:path';
 
 export const name = 'dsh-security-tools';
 
@@ -150,33 +150,85 @@ function verifyPayloadIntegrity(bundledDirUrl) {
 }
 
 /**
+ * Canonicalize a path through symlinks: realpath the deepest EXISTING
+ * ancestor (a scan target or output dir may not exist yet), then re-append the
+ * missing suffix. Falls back to the lexical path when nothing exists or a
+ * symlink loop is detected. Used so path containment cannot be bypassed by a
+ * symlink inside the working directory pointing outside it (F1), and so the
+ * CLI executes against the canonical location (F3).
+ */
+function canonicalizePath(p) {
+  let probe = p;
+  const missing = [];
+  for (;;) {
+    try {
+      return realpathSync(probe) + (missing.length > 0 ? pathSep + missing.reverse().join(pathSep) : '');
+    } catch {
+      const parent = dirname(probe);
+      if (parent === probe) return p; // filesystem root or unresolvable
+      missing.push(basename(probe));
+      probe = parent;
+    }
+  }
+}
+
+/** Validate an integer parameter into the documented range; throws otherwise. */
+function toBoundedInt(value, { min, max, name }) {
+  if (value === undefined) return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < min || n > max || !Number.isInteger(n)) {
+    throw new Error(`dsh_security: ${name} must be an integer between ${min} and ${max}`);
+  }
+  return n;
+}
+
+/** Validate a fractional numeric parameter into the documented range. */
+function toBoundedNumber(value, { min, max, name }) {
+  if (value === undefined) return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < min || n > max) {
+    throw new Error(`dsh_security: ${name} must be a number between ${min} and ${max}`);
+  }
+  return n;
+}
+
+/** The only inference providers the CLI wrapper accepts (F5). */
+const PROVIDERS = ['openai', 'openrouter', 'fireworks', 'amazon-bedrock'];
+
+/**
  * Resolve a scan/findings path argument against the run's working directory
- * and enforce containment: the resolved path must stay inside the working
- * directory unless `allowOutside` is set. Remote repository references (URLs
- * and scp-style git refs) pass through — the CLI fetches those over the
- * network instead of reading local paths. Throws with an actionable message on
- * violation.
+ * and enforce containment on CANONICAL paths: the resolved path must stay
+ * inside the canonical working directory unless `allowOutside` is set. Remote
+ * repository references (https/ssh/git URLs and scp-style refs) pass through —
+ * the CLI fetches those over the network instead of reading local paths.
+ * `file://` is deliberately NOT allowed (it denotes local files). Throws with
+ * an actionable message on violation.
  */
 function resolveTarget(rawTarget, workdir, allowOutside) {
   let target = String(rawTarget ?? '.');
   if (target.length === 0) target = '.';
+  // `file://` denotes LOCAL files, not a remote fetch — reject it outright
+  // instead of letting it slip through containment (F2).
+  if (/^file:\/\//i.test(target)) {
+    throw new Error('dsh_security: file:// targets are not supported; use a local path inside the working directory');
+  }
   // Remote references are the CLI's business, not local file reads.
-  if (/^(https?|ssh|git|file):\/\//i.test(target) || /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+:/.test(target)) {
+  if (/^(https?|ssh|git):\/\//i.test(target) || /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+:/.test(target)) {
     return target;
   }
   // Expand a leading `~` (the shell would expand it later; we must check it).
   if (target === '~') target = homedir();
   else if (target.startsWith('~/') || target.startsWith('~\\')) target = homedir() + target.slice(1);
-  const root = resolvePath(workdir || (typeof process !== 'undefined' ? process.cwd() : '.'));
-  const resolved = resolvePath(root, target);
+  const root = canonicalizePath(resolvePath(workdir || (typeof process !== 'undefined' ? process.cwd() : '.')));
+  const resolved = canonicalizePath(resolvePath(root, target));
   const rootKey = typeof process !== 'undefined' && process.platform === 'win32' ? root.toLowerCase() : root;
   const resolvedKey = typeof process !== 'undefined' && process.platform === 'win32' ? resolved.toLowerCase() : resolved;
   if (!allowOutside && resolvedKey !== rootKey && !resolvedKey.startsWith(rootKey + pathSep)) {
     throw new Error(
       `dsh_security: path ${JSON.stringify(rawTarget)} resolves outside the working directory (${root}); ` +
-      'only paths inside the working directory may be scanned. Choose a path under the working directory ' +
-      '(or pass a workdir that contains it), or have an administrator set the plugin config ' +
-      'allowTargetsOutsideWorkdir: true to permit outside paths.'
+      'only paths inside the working directory may be scanned (symlinks are resolved). Choose a path under ' +
+      'the working directory (or pass a workdir that contains it), or have an administrator set the plugin ' +
+      'config allowTargetsOutsideWorkdir: true to permit outside paths.'
     );
   }
   return resolved;
@@ -343,7 +395,7 @@ export function apply(ctx, config = {}) {
   register({
     name: 'dsh_security_resources',
     description:
-      'Return the absolute paths of the bundled Codex Security payload shipped with this preset (the upstream workflow skills, references, schemas, examples, and Python scripts) plus the result of the load-time payload integrity check. Use it to read a workflow skill\'s referenced documents or to run one of the bundled Python scripts (e.g. resolve_security_md.py) with the python tool. If the integrity check failed, the bundled scripts must be treated as untrusted.',
+      'Return the absolute paths of the bundled Codex Security payload shipped with this preset (the upstream workflow skills, references, schemas, examples, and Python scripts). Use it to read a workflow skill\'s referenced documents or to run one of the bundled Python scripts (e.g. resolve_security_md.py) with the python tool. Payload integrity is re-verified on every call; if it fails the tool throws and no paths are returned (bundled scripts must not be run).',
     parameters: {
       type: 'object',
       properties: {
@@ -352,17 +404,26 @@ export function apply(ctx, config = {}) {
     },
     output,
     async execute(args) {
+      // Enforcement (not just reporting): re-verify the payload NOW and refuse
+      // to hand out the bundled paths (scripts/skills/references) when the
+      // integrity check fails — the model cannot run a script whose path it
+      // never received. Catches tampering that happened after plugin load.
+      const now = verifyPayloadIntegrity(bundledDirUrl);
+      if (!now.ok) {
+        throw new Error(
+          'codex-security: bundled payload integrity check FAILED (' +
+            now.failures.length + ' problem(s): ' + now.failures.join(', ') +
+            ') — the bundled scripts are untrusted and must NOT be run. Reinstall the preset to restore the pristine payload.'
+        );
+      }
       const paths = {
         bundledDir,
         skillsDir: fileURLToPath(new URL('../../bundled/skills/', import.meta.url)),
         referencesDir: fileURLToPath(new URL('../../bundled/references/', import.meta.url)),
         scriptsDir: fileURLToPath(new URL('../../bundled/scripts/', import.meta.url)),
       };
-      const integrityLine = integrity.ok
-        ? `payload integrity: OK (${Object.keys(SCRIPTS_CHECKSUMS).length} bundled scripts verified at load)`
-        : `payload integrity: FAILED (${integrity.failures.length} problem(s): ${integrity.failures.join(', ')}) — treat bundled scripts as untrusted`;
       if (args.detail !== true) {
-        return Object.entries(paths).map(([k, v]) => `${k}: ${v}`).join('\n') + `\n${integrityLine}`;
+        return Object.entries(paths).map(([k, v]) => `${k}: ${v}`).join('\n') + '\npayload integrity: OK (verified at call time)';
       }
       const { readdir } = await import('node:fs/promises');
       const list = (dir) => readdir(dir).catch(() => []);
@@ -376,7 +437,7 @@ export function apply(ctx, config = {}) {
         `skills (${skills.length}): ${skills.join(', ')}`,
         `references (${references.length}): ${references.join(', ')}`,
         `scripts (${scripts.length}): ${scripts.join(', ')}`,
-        integrityLine,
+        'payload integrity: OK (verified at call time)',
       ].join('\n');
     },
   });
@@ -392,13 +453,13 @@ export function apply(ctx, config = {}) {
         target: { type: 'string', description: 'Repository or path to scan (defaults to the current working directory). Must resolve inside the working directory unless the plugin config allows outside paths; a remote git URL is allowed.' },
         mode: { type: 'string', enum: ['standard', 'deep'], description: 'standard (default, single pass) or deep (multi-pass discovery).' },
         model: { type: 'string', description: 'Model id, e.g. gpt-5.6-terra or an OpenRouter/Fireworks/Bedrock model.' },
-        provider: { type: 'string', description: 'Inference provider (openai, openrouter, fireworks, amazon-bedrock).' },
+        provider: { type: 'string', enum: ['openai', 'openrouter', 'fireworks', 'amazon-bedrock'], description: 'Inference provider (openai, openrouter, fireworks, amazon-bedrock).' },
         effort: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Scan effort.' },
-        workers: { type: 'number', description: 'Number of parallel workers.' },
-        subagents: { type: 'number', description: 'Deep-scan subagents per worker (0 disables).' },
-        max_time_hours: { type: 'number', description: 'Deep-scan discovery time cap in hours (positive, up to 96).' },
-        stop_after_no_new: { type: 'number', description: 'Deep-scan stop after N discovery runs with no new findings.' },
-        max_discovery_runs: { type: 'number', description: 'Deep-scan maximum discovery runs.' },
+        workers: { type: 'number', description: 'Number of parallel workers (1–64).' },
+        subagents: { type: 'number', description: 'Deep-scan subagents per worker, 0 disables (0–64).' },
+        max_time_hours: { type: 'number', description: 'Deep-scan discovery time cap in hours (0.01–96).' },
+        stop_after_no_new: { type: 'number', description: 'Deep-scan stop after N discovery runs with no new findings (1–1000).' },
+        max_discovery_runs: { type: 'number', description: 'Deep-scan maximum discovery runs (1–1000).' },
         scan_prompt_file: { type: 'string', description: 'Path to a file with shared scan instructions; must resolve inside the working directory.' },
         post_scan_prompt_file: { type: 'string', description: 'Path to a file with post-scan follow-up instructions; must resolve inside the working directory.' },
         knowledge_base: { type: 'array', items: { type: 'string' }, description: 'Security documents to share with the scan (files or directories inside the working directory); repeatable.' },
@@ -413,17 +474,31 @@ export function apply(ctx, config = {}) {
     output,
     async execute(args, exec) {
       const workdir = resolveWorkdir(exec, args.workdir);
+      // Runtime validation (F4/F5): the JSON schema only constrains enums; the
+      // model is untrusted input, so bound numeric arguments and whitelist the
+      // provider before anything is passed to the CLI.
+      if (args.provider !== undefined && !PROVIDERS.includes(args.provider)) {
+        throw new Error(
+          `dsh_security: provider ${JSON.stringify(args.provider)} is not supported ` +
+            `(allowed: ${PROVIDERS.join(', ')})`
+        );
+      }
+      const workers = toBoundedInt(args.workers, { min: 1, max: 64, name: 'workers' });
+      const subagents = toBoundedInt(args.subagents, { min: 0, max: 64, name: 'subagents' });
+      const maxTimeHours = toBoundedNumber(args.max_time_hours, { min: 0.01, max: 96, name: 'max_time_hours' });
+      const stopAfterNoNew = toBoundedInt(args.stop_after_no_new, { min: 1, max: 1000, name: 'stop_after_no_new' });
+      const maxDiscoveryRuns = toBoundedInt(args.max_discovery_runs, { min: 1, max: 1000, name: 'max_discovery_runs' });
       const parts = [...cliPrefix, 'scan'];
       parts.push(quoteArg(resolveTarget(args.target, workdir, allowTargetsOutsideWorkdir), shell));
       if (args.mode) parts.push('--mode', args.mode);
       if (args.model) parts.push('--model', quoteArg(args.model, shell));
       if (args.provider) parts.push('--provider', quoteArg(args.provider, shell));
       if (args.effort) parts.push('--effort', args.effort);
-      if (args.workers !== undefined) parts.push('--workers', String(args.workers));
-      if (args.subagents !== undefined) parts.push('--subagents', String(args.subagents));
-      if (args.max_time_hours !== undefined) parts.push('--max-time-hours', String(args.max_time_hours));
-      if (args.stop_after_no_new !== undefined) parts.push('--stop-after-no-new', String(args.stop_after_no_new));
-      if (args.max_discovery_runs !== undefined) parts.push('--max-discovery-runs', String(args.max_discovery_runs));
+      if (workers !== undefined) parts.push('--workers', String(workers));
+      if (subagents !== undefined) parts.push('--subagents', String(subagents));
+      if (maxTimeHours !== undefined) parts.push('--max-time-hours', String(maxTimeHours));
+      if (stopAfterNoNew !== undefined) parts.push('--stop-after-no-new', String(stopAfterNoNew));
+      if (maxDiscoveryRuns !== undefined) parts.push('--max-discovery-runs', String(maxDiscoveryRuns));
       if (args.scan_prompt_file) parts.push('--scan-prompt-file', quoteArg(resolveTarget(args.scan_prompt_file, workdir, allowTargetsOutsideWorkdir), shell));
       if (args.post_scan_prompt_file) parts.push('--post-scan-prompt-file', quoteArg(resolveTarget(args.post_scan_prompt_file, workdir, allowTargetsOutsideWorkdir), shell));
       for (const kb of args.knowledge_base ?? []) {
