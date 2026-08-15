@@ -338,16 +338,23 @@ window.__ModuleLoader__.load({
 		].join(" ");
 
 		/** Split a bilingual report into English and Chinese halves on the
-		 *  generator marker. Splits on the LAST occurrence: flash models
+		 *  generator marker. Handles both the canonical form and the
+		 *  HTML-escaped form (`&lt;!-- REPORT_ZH -->`) that older gate
+		 *  versions may have written to disk, so already-generated reports
+		 *  still split correctly. Splits on the LAST occurrence: flash models
 		 *  sometimes drop a stray marker after an intro sentence, which would
 		 *  otherwise leave the English view empty. zh is null when the model
 		 *  produced no marker. */
 		function splitReport(text) {
-			var marker = "<!-- REPORT_ZH -->";
 			var s = String(text || "");
-			var idx = s.lastIndexOf(marker);
+			var idx = s.lastIndexOf("<!-- REPORT_ZH -->");
+			var markerLen = "<!-- REPORT_ZH -->".length;
+			if (idx < 0) {
+				idx = s.lastIndexOf("&lt;!-- REPORT_ZH -->");
+				markerLen = "&lt;!-- REPORT_ZH -->".length;
+			}
 			if (idx < 0) return { en: s, zh: null };
-			return { en: s.slice(0, idx), zh: s.slice(idx + marker.length) };
+			return { en: s.slice(0, idx), zh: s.slice(idx + markerLen) };
 		}
 		/** True when a string contains CJK characters (a real Chinese translation). */
 		function hasCjk(s) {

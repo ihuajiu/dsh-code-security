@@ -152,7 +152,15 @@ function readFileSafe(p) {
  */
 function sanitizeReportHtml(text) {
   const DANGEROUS = /<\/?(script|iframe|object|embed|img|svg|link|meta|style|form|math|video|audio|base|template)(\s[^>]*)?>|<!--/gi;
-  return String(text).replace(DANGEROUS, (m) => m.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+  const out = String(text).replace(DANGEROUS, (m) => m.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+  // The bilingual split marker IS a real HTML comment and must survive
+  // verbatim: the panel splits the report on `<!-- REPORT_ZH -->`. The
+  // dangerous-`<!--` rule above would otherwise escape it to
+  // `&lt;!-- REPORT_ZH -->` and silently break the split, leaving the Chinese
+  // half glued to the bottom of the English view. Restore the canonical form
+  // (an escaped marker can only come from this sanitizer, since the model is
+  // instructed to emit the marker exactly).
+  return out.replace(/&lt;!-- REPORT_ZH -->/g, '<!-- REPORT_ZH -->');
 }
 
 /**
