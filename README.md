@@ -235,7 +235,8 @@ SQL/NoSQL 注入、XSS、缺失认证/授权、越权访问与 IDOR、路径穿�
 ## 卸载
 
 - **预设**：删除 `~/.dsh/.agent-presets/dsh-security/`。
-- **门禁**：`dsh plugin --profile web remove @dsh.so/dsh-security-gate`；若
+- **门禁**：`dsh plugin --profile web remove '@dsh.so/dsh-security-gate'`（PowerShell
+  里作用域名必须加引号，否则 `@dsh` 会被当成 splatting 语法）；若
   `~/.dsh/profiles/web/cordis.patch.yml` 里残留旧版手动行（`dsh-security-gate`），一并删掉。
 
 > 从旧包名 `dsh-security-gate` 升级：先 `dsh plugin --profile web remove dsh-security-gate`，
