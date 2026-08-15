@@ -134,4 +134,7 @@ Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要
   （防 DNS rebinding）+ Origin 匹配（CSRF）+ 令牌校验（本地进程）；`POST /scan` 与
   `POST /clear` 均限流（默认 10 次/10 秒、单请求 ≤50 目标）。
 - **状态目录权限**：`<stateDir>` 与报告目录按 `0700` 创建，`state.json`/
-  `summary.json`/`report.md`/`runner.log` 按 `0600` 写入（POSIX）。
+  `summary.json`/`report.md`/`runner.log` 按 `0600` 写入（POSIX）。**Windows 注意**：
+  Node 忽略 POSIX mode，token 文件在写入后会用 `icacls /inheritance:r /grant:r <user>:(R)`
+  尽力收紧 ACL（仅当前用户可读）；若 `icacls` 不可用则退回用户 profile 默认 ACL。
+  共享多用户 Windows 主机上，请勿将 `<stateDir>` 放在他人可读的位置。

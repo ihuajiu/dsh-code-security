@@ -27,6 +27,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSy
 import { join, dirname, relative, basename, resolve as resolvePath, sep as pathSep } from 'node:path';
 import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 
 export const name = 'dsh-security-gate';
 
@@ -347,6 +348,21 @@ export function apply(ctx, config = {}) {
     const t = randomBytes(32).toString('hex');
     try {
       writeFileSync(tokenPath, t, { mode: 0o600 });
+      // POSIX mode is ignored on Windows: restrict the token file ACL to the
+      // current user as best-effort hardening (audit finding F4 — on a shared
+      // Windows machine another local user could otherwise read the token).
+      // Best-effort: if icacls is unavailable or fails, the gate still works
+      // (the token remains protected by the user-profile default ACL).
+      if (typeof process !== 'undefined' && process.platform === 'win32') {
+        try {
+          const user = process.env.USERNAME;
+          if (user) {
+            execFileSync('icacls', [tokenPath, '/inheritance:r', '/grant:r', user + ':(R)'], { stdio: 'ignore', timeout: 10000 });
+          }
+        } catch {
+          /* best-effort */
+        }
+      }
     } catch {
       /* best-effort */
     }
