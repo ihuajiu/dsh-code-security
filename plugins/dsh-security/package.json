@@ -1,9 +1,36 @@
 {
   "name": "@dsh.so/dsh-security-tools",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "main": "index.js",
-  "description": "DSH agent-preset plugin wrapping the @openai/codex-security CLI: security scan, findings, and scan-comparison tools.",
-  "license": "Apache-2.0"
+  "description": "DSH agent-preset plugin wrapping the @openai/codex-security CLI: security scan, findings, and scan-comparison tools, plus the bundled Codex Security workflow payload (integrity-verified).",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ihuajiu/dsh-code-security.git"
+  },
+  "homepage": "https://github.com/ihuajiu/dsh-code-security",
+  "bugs": {
+    "url": "https://github.com/ihuajiu/dsh-code-security/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "security",
+    "audit",
+    "codex-security",
+    "preset"
+  ],
+  "files": [
+    "index.js",
+    "bundled",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

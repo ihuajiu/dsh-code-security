@@ -438,7 +438,17 @@ export function apply(ctx, config = {}) {
   ];
   const shell = detectShell(config.shell);
 
-  const bundledDirUrl = new URL('../../bundled/', import.meta.url);
+  // Locate the bundled payload. Two layouts are supported:
+  //   1. npm package / in-package copy: `./bundled/` next to this module
+  //      (the package ships the payload inside the tarball), and
+  //   2. agent-preset layout: this module lives at <preset>/plugins/dsh-security/
+  //      and the payload is at <preset>/bundled/ (`../../bundled/`).
+  // The in-package copy is preferred so a published npm package is
+  // self-contained; the preset fallback keeps existing installs working.
+  const inPackageBundled = new URL('./bundled/', import.meta.url);
+  const bundledDirUrl = existsSync(fileURLToPath(inPackageBundled))
+    ? inPackageBundled
+    : new URL('../../bundled/', import.meta.url);
   const bundledDir = fileURLToPath(bundledDirUrl);
   // Load-time integrity check of the bundled payload scripts. FAIL-CLOSED
   // (audit finding F4): a tampered payload (hash mismatch, missing or extra
@@ -597,9 +607,9 @@ export function apply(ctx, config = {}) {
       }
       const paths = {
         bundledDir,
-        skillsDir: fileURLToPath(new URL('../../bundled/skills/', import.meta.url)),
-        referencesDir: fileURLToPath(new URL('../../bundled/references/', import.meta.url)),
-        scriptsDir: fileURLToPath(new URL('../../bundled/scripts/', import.meta.url)),
+        skillsDir: fileURLToPath(new URL('skills/', bundledDirUrl)),
+        referencesDir: fileURLToPath(new URL('references/', bundledDirUrl)),
+        scriptsDir: fileURLToPath(new URL('scripts/', bundledDirUrl)),
       };
       if (args.detail !== true) {
         return Object.entries(paths).map(([k, v]) => `${k}: ${v}`).join('\n') + '\npayload integrity: OK (verified at call time)';

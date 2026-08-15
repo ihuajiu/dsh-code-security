@@ -24,6 +24,7 @@
     "index.js",
     "client.js",
     "cordis.patch.yml",
+    "audit-baseline.json",
     "README.md"
   ],
   "exports": {
