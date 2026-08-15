@@ -1,4 +1,8 @@
-# openai-code-security
+# dsh-code-security（安全审计插件）
+
+> 产品展示名：**dsh-code-security**；技术标识：宿主插件 `dsh-security-gate`、
+> agent preset `dsh-security`、工具 `dsh_security_*`、端点 `/dsh-security/*`。
+> 仓库目录名沿用 `openai-code-security`（历史来源）。
 
 把 OpenAI [codex-security](https://github.com/openai/codex-security)（Apache-2.0）
 封装成 DeepSeek Harness（DSH）**插件项目**，包含两部分。项目非 OpenAI 官方产品，
@@ -142,8 +146,9 @@ openai-code-security/
   https://github.com/openai/codex-security （版本 0.1.20 的 `_bundled_plugin`）。
 - 使用 Codex Security 服务需遵守 OpenAI 的使用条款；部分网络安防请求与受保护
   发现可能需要 Trusted Access for Cyber（chatgpt.com/cyber）。
-- **命名**：`Codex` / `Codex Security` 为 OpenAI 商标。本项目对外使用
-  `dsh-security` / `dsh-security-gate` 等中性名称，仅在上游归属、CLI 包名
+- **命名**：`Codex` / `Codex Security` 为 OpenAI 商标。本项目对外展示名为
+  **dsh-code-security**（安全审计插件），技术标识为 `dsh-security` /
+  `dsh-security-gate` 等中性名称，仅在上游归属、CLI 包名
   （`@openai/codex-security`）与技能内引用中保留上游原名。
 
 ## 已知限制

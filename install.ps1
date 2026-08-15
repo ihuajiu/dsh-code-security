@@ -1,6 +1,8 @@
 # Install the openai-code-security DSH plugin project:
 #   1. agent preset  -> ~/.dsh/.agent-presets/dsh-security (skills + scan tools)
-#   2. security gate -> web profile as a pnpm dependency + a cordis.patch.yml row
+#   2. security gate -> web profile as a pnpm dependency; `dsh.bundle.patch` in
+#      gate/package.json makes `dsh plugin add` activate it as a profile bundle
+#      layer automatically (no manual cordis.patch.yml row needed).
 # Idempotent: re-running replaces the previous copies.
 $ErrorActionPreference = 'Stop'
 
@@ -27,24 +29,51 @@ if (Test-Path (Join-Path $profileDir 'package.json')) {
   }
 
   $patch = Join-Path $profileDir 'cordis.patch.yml'
-  $row = @(
-    '- insert:',
-    '    - id: dsh-security-gate',
-    '      name: dsh-security-gate',
-    '      config:',
-    '        scanTimeoutMs: 900000'
-  ) -join "`n"
-  $content = (Get-Content $patch -Raw -ErrorAction SilentlyContinue)
+  # Since gate/package.json declares `dsh.bundle.patch`, `dsh plugin add` above
+  # already activates the gate as a profile bundle layer — no manual patch row
+  # is written anymore. Migrate an existing install: remove the obsolete
+  # script-written insert row (exact match only, so a customized row is never
+  # silently deleted), because the loader rejects duplicate entry ids and the
+  # bundle row would collide with it.
+  $content = ''
+  if (Test-Path $patch) { $content = Get-Content $patch -Raw -ErrorAction SilentlyContinue }
   if ($null -eq $content) { $content = '' }
-  if ($content -match 'dsh-security-gate') {
-    Write-Host 'gate row already present in cordis.patch.yml' -ForegroundColor Yellow
-  } elseif ($content.Trim() -eq '[]' -or $content.Trim() -eq '') {
-    Set-Content -Path $patch -Value $row -Encoding UTF8
-    Write-Host "wrote gate row to $patch" -ForegroundColor Green
-  } else {
-    if (-not $content.EndsWith("`n")) { Add-Content -Path $patch -Value '' }
-    Add-Content -Path $patch -Value $row
-    Write-Host "appended gate row to $patch" -ForegroundColor Green
+  $lines = @($content -split "`r?`n")
+  $start = -1
+  for ($i = 0; $i -lt $lines.Count - 1; $i++) {
+    if ($lines[$i].TrimEnd() -eq '- insert:' -and $lines[$i + 1].TrimEnd() -eq '    - id: dsh-security-gate') {
+      $start = $i
+      break
+    }
+  }
+  if ($start -ge 0) {
+    $end = $start + 1
+    while ($end -lt $lines.Count -and $lines[$end].StartsWith('    ')) { $end++ }
+    $expected = @(
+      '- insert:',
+      '    - id: dsh-security-gate',
+      '      name: dsh-security-gate',
+      '      config:',
+      '        scanTimeoutMs: 900000'
+    ) -join "`n"
+    $block = ($lines[$start..($end - 1)] | ForEach-Object { $_.TrimEnd() }) -join "`n"
+    if ($block -eq $expected) {
+      $before = if ($start -gt 0) { $lines[0..($start - 1)] } else { @() }
+      $after = if ($end -lt $lines.Count) { $lines[$end..($lines.Count - 1)] } else { @() }
+      $result = (($before + $after) -join "`n").TrimEnd()
+      # If only comments and/or a stale `[]` remain, normalize to a bare `[]`.
+      $nonComment = ($result -split "`n" | Where-Object { $_.Trim() -ne '' -and -not $_.TrimStart().StartsWith('#') }) -join "`n"
+      if ($nonComment.Trim() -eq '' -or $nonComment.Trim() -eq '[]') {
+        $comments = ($result -split "`n" | Where-Object { $_.TrimStart().StartsWith('#') }) -join "`n"
+        $value = if ($comments.Trim() -ne '') { $comments + "`n[]" } else { '[]' }
+        Set-Content -Path $patch -Value $value -Encoding UTF8
+      } else {
+        Set-Content -Path $patch -Value ($result + "`n") -Encoding UTF8
+      }
+      Write-Host "removed obsolete dsh-security-gate row from $patch (the bundle now activates it)" -ForegroundColor Green
+    } else {
+      Write-Host "cordis.patch.yml has a customized dsh-security-gate row — remove it manually; the bundle now activates the gate. Re-express any custom config as an id-targeted override (see gate/README.md)." -ForegroundColor Yellow
+    }
   }
 } else {
   Write-Host 'web profile not found — skip gate install (preset installed only).' -ForegroundColor Yellow

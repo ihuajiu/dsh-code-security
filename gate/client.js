@@ -392,7 +392,7 @@ window.__ModuleLoader__.load({
 				react.createElement("div", { style: styles.head },
 					react.createElement("div", null,
 						react.createElement("h2", { style: styles.title }, "🛡️ 安全审计",
-							react.createElement("span", { style: { fontSize: "12px", color: theme.label3, fontWeight: 400 } }, "dsh-security")),
+							react.createElement("span", { style: { fontSize: "12px", color: theme.label3, fontWeight: 400 } }, "dsh-code-security")),
 						react.createElement("p", { style: styles.subtitle },
 							"新插件安装后自动用本会话模型审计；已审计且未变化的插件不会重复审计。")),
 					react.createElement("div", { style: styles.spacer }),

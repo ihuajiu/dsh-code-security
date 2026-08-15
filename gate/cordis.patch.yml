@@ -1,0 +1,22 @@
+# dsh-security-gate bundle patch.
+#
+# `package.json` declares `dsh.bundle.patch: ./cordis.patch.yml`, so
+# `dsh plugin --profile <name> add <this-directory>` installs the package into
+# the profile AND appends `dsh-security-gate` to the profile's
+# `dsh.profile.bundles` layer stack; this patch then inserts the plugin row.
+# No manual `cordis.patch.yml` row is needed.
+#
+# The row intentionally carries no config: every setting has a code default
+# (e.g. `scanTimeoutMs` defaults to 900000 in index.js). To customize, add an
+# id-targeted override to the profile's own cordis.patch.yml — it replaces the
+# whole config, so restate every field you want:
+#
+#   - id: dsh-security-gate
+#     config:
+#       autoScan: true
+#       scanOnBoot: false
+#       engine: cli
+#       sandboxMode: danger-full-access
+- insert:
+    - id: dsh-security-gate
+      name: dsh-security-gate

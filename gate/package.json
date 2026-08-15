@@ -17,6 +17,9 @@
       "inject": [
         "@deepseek-ai/dsh-client-runtime"
       ]
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
     }
   }
 }

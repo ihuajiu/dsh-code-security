@@ -1,4 +1,4 @@
-# dsh-security-gate
+# dsh-security-gate（展示名：dsh-code-security）
 
 DSH 宿主门禁插件：**新插件安装时自动用本会话的大模型审计（免认证），并支持指定插件批量扫描。**
 （非 OpenAI 官方产品；`Codex`/`Codex Security` 为 OpenAI 商标，本插件已改用中性命名。）

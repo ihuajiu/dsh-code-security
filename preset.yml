@@ -1,2 +1,2 @@
-name: 代码安全模式
-description: 标准编码 Agent，并附带 OpenAI Codex Security 的安全扫描技能（security-scan、diff-scan、triage、fix、threat-model 等）与 codex_security_* 扫描工具。
+name: 安全审计模式（dsh-code-security）
+description: dsh-code-security（安全审计）Agent preset —— 标准编码 Agent，并附带 OpenAI Codex Security 上游工作流技能（security-scan、diff-scan、triage、fix、threat-model 等）与 dsh_security_* 扫描工具。
