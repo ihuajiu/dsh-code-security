@@ -129,4 +129,3 @@ Write-Host 'Done. Next steps:' -ForegroundColor Green
 Write-Host '  1. Restart dsh web so the gate loads (composition changes apply at boot).'
 Write-Host '  2. New DSH session -> pick the "安全审计模式" preset (id: dsh-security) for skills + model-based audits.'
 Write-Host '  3. The gate auto-audits newly installed plugins with the harness model (no auth); watch <DSH_HOME>/dsh-security/summary.json.'
-Write-Host '  4. Optional: for OpenAI Codex Security CLI scans, run `npx @openai/codex-security login` (or set OPENAI_API_KEY).'

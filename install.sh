@@ -148,7 +148,6 @@ echo 'Done. Next steps:'
 echo '  1. Restart dsh web so the gate loads (composition changes apply at boot).'
 echo '  2. New DSH session -> pick the "安全审计模式" preset (id: dsh-security) for skills + model-based audits.'
 echo "  3. The gate auto-audits newly installed plugins with the harness model (no auth); watch $dsh/dsh-security/summary.json."
-echo '  4. Optional: for OpenAI Codex Security CLI scans, run `npx @openai/codex-security login` (or set OPENAI_API_KEY).'
 }
 
 main "$@"
