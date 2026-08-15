@@ -456,10 +456,14 @@ export function apply(ctx, config = {}) {
       'and a practical remediation.\n' +
       '- Missing deployment evidence lowers confidence; it does not by itself defeat a ' +
       'source-backed vulnerability.\n\n' +
-      'Output a markdown report with: a concise Threat Model section; a Findings section with ' +
-      'one subsection per finding (title, Location, Description, Attack path, Impact, Remediation); ' +
-      'and a Summary counting findings by severity. If there are no findings, state "No findings" ' +
-      'with the evidence-grounded rationale.\n\n' +
+      'Output a markdown report. START with a "Summary" section containing a ' +
+      'markdown table counting findings by severity (rows: 严重/Critical, 高/High, ' +
+      '中/Medium, 低/Low, 合计/Total, with counts) — the summary comes FIRST so ' +
+      'readers see the verdict immediately. Then a concise Threat Model section; ' +
+      'a Findings section with one subsection per finding (title, Location, ' +
+      'Description, Attack path, Impact, Remediation); and a short conclusion. ' +
+      'If there are no findings, state "No findings" with the evidence-grounded ' +
+      'rationale.\n\n' +
       // Bilingual reports: complete English report first, then a complete
       // Chinese translation, separated by a marker the panel splits on.
       'Language: write the ENTIRE report in ENGLISH first — it must be complete and standalone. ' +

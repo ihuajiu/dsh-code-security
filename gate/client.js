@@ -243,6 +243,23 @@ window.__ModuleLoader__.load({
 					continue;
 				}
 				if (/^\s*---+\s*$/.test(line)) { out.push('<hr class="dshsec-hr">'); i++; continue; }
+				// GitHub-style table: `| a | b |` header + `|---|:--:|` separator
+				if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) && lines[i + 1].indexOf("-") >= 0) {
+					var rows = [];
+					while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) { rows.push(lines[i]); i++; }
+					var cell = function (r) {
+						var t = String(r).trim();
+						if (t.charAt(0) === "|") t = t.slice(1);
+						if (t.charAt(t.length - 1) === "|") t = t.slice(0, -1);
+						return t.split("|").map(function (c) { return mdInline(mdEscape(c.trim())); });
+					};
+					var head = cell(rows[0]).map(function (c) { return "<th>" + c + "</th>"; }).join("");
+					var body = rows.slice(2).map(function (r) {
+						return "<tr>" + cell(r).map(function (c) { return "<td>" + c + "</td>"; }).join("") + "</tr>";
+					}).join("");
+					out.push('<table class="dshsec-table"><thead><tr>' + head + "</tr></thead>" + (body ? "<tbody>" + body + "</tbody>" : "") + "</table>");
+					continue;
+				}
 				if (/^\s*[-*]\s+/.test(line)) {
 					var items = [];
 					while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) { items.push(mdInline(mdEscape(lines[i].replace(/^\s*[-*]\s+/, "")))); i++; }
@@ -289,6 +306,9 @@ window.__ModuleLoader__.load({
 			".dshsec-body code{background:" + theme.bgModule + ";border:1px solid " + theme.borderL1 + ";border-radius:4px;padding:1px 4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}",
 			".dshsec-body pre.dshsec-code code{background:none;border:none;padding:0}",
 			".dshsec-body hr{border:none;border-top:1px solid " + theme.borderL1 + ";margin:10px 0}",
+			".dshsec-body table{border-collapse:collapse;margin:8px 0;width:100%;font-size:12px}",
+			".dshsec-body th,.dshsec-body td{border:1px solid " + theme.borderL1 + ";padding:5px 8px;text-align:left;vertical-align:top}",
+			".dshsec-body th{background:" + theme.bgModule + ";font-weight:600;color:" + theme.label + "}",
 			".dshsec-body a{color:" + theme.accent + "}",
 		].join(" ");
 
