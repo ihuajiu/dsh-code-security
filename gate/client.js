@@ -164,17 +164,14 @@ window.__ModuleLoader__.load({
 				background: theme.bgModule,
 			},
 			reportTitle: { margin: 0, fontSize: "12.5px", fontWeight: 600, color: theme.label2 },
-			pre: {
-				margin: 0,
+			reportBody: {
 				padding: "14px",
-				fontSize: "12px",
+				fontSize: "12.5px",
 				lineHeight: 1.6,
-				whiteSpace: "pre-wrap",
-				wordBreak: "break-word",
 				maxHeight: "55vh",
 				overflow: "auto",
-				color: theme.label,
-				fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+				color: theme.label2,
+				wordBreak: "break-word",
 			},
 			empty: {
 				border: "1px dashed " + theme.border,
@@ -202,6 +199,103 @@ window.__ModuleLoader__.load({
 		};
 		const KIND_LABEL = { preset: "预设", package: "插件", path: "路径" };
 		const KIND_COLOR = { preset: "#7048e8", package: "#2f6fed", path: "#0b7285" };
+
+		// ── markdown-lite: render the model-generated audit report readably ──
+		// Zero-dependency: escape first, then apply a small safe tag set, and
+		// mount the result via dangerouslySetInnerHTML (no user HTML survives
+		// the escape pass).
+		function mdEscape(s) {
+			return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+		}
+		function mdInline(s) {
+			return s
+				.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+				.replace(/`([^`]+)`/g, "<code>$1</code>")
+				.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+		}
+		function mdHtml(text) {
+			var lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+			var out = [];
+			var fence = [];
+			var inFence = false;
+			var i = 0;
+			while (i < lines.length) {
+				var line = lines[i];
+				if (/^```/.test(line)) {
+					if (inFence) { out.push('<pre class="dshsec-code">' + mdEscape(fence.join("\n")) + "</pre>"); fence = []; inFence = false; }
+					else inFence = true;
+					i++;
+					continue;
+				}
+				if (inFence) { fence.push(line); i++; continue; }
+				var m;
+				if ((m = /^(#{1,3})\s+(.*)$/.exec(line))) {
+					var lvl = m[1].length;
+					out.push('<h' + (lvl + 2) + ' class="dshsec-h dshsec-h' + lvl + '">' + mdInline(mdEscape(m[2])) + "</h" + (lvl + 2) + ">");
+					i++;
+					continue;
+				}
+				if (/^\s*---+\s*$/.test(line)) { out.push('<hr class="dshsec-hr">'); i++; continue; }
+				if (/^\s*[-*]\s+/.test(line)) {
+					var items = [];
+					while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) { items.push(mdInline(mdEscape(lines[i].replace(/^\s*[-*]\s+/, "")))); i++; }
+					out.push('<ul class="dshsec-ul">' + items.map(function (t) { return "<li>" + t + "</li>"; }).join("") + "</ul>");
+					continue;
+				}
+				if (/^\s*\d+[.)]\s+/.test(line)) {
+					var oitems = [];
+					while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) { oitems.push(mdInline(mdEscape(lines[i].replace(/^\s*\d+[.)]\s+/, "")))); i++; }
+					out.push('<ol class="dshsec-ol">' + oitems.map(function (t) { return "<li>" + t + "</li>"; }).join("") + "</ol>");
+					continue;
+				}
+				if (line.trim() !== "") {
+					var para = [];
+					while (
+						i < lines.length &&
+						lines[i].trim() !== "" &&
+						!/^(#{1,3})\s/.test(lines[i]) &&
+						!/^```/.test(lines[i]) &&
+						!/^\s*[-*]\s+/.test(lines[i]) &&
+						!/^\s*\d+[.)]\s+/.test(lines[i]) &&
+						!/^\s*---+\s*$/.test(lines[i])
+					) {
+						para.push(lines[i]);
+						i++;
+					}
+					out.push('<p class="dshsec-p">' + mdInline(mdEscape(para.join("\n"))).replace(/\n/g, "<br>") + "</p>");
+					continue;
+				}
+				i++;
+			}
+			if (inFence) out.push('<pre class="dshsec-code">' + mdEscape(fence.join("\n")) + "</pre>");
+			return out.join("\n");
+		}
+		// Scoped CSS for the rendered report (classes are prefixed dshsec- and
+		// anchored under .dshsec-body so they never leak to the host page).
+		const MD_CSS = [
+			".dshsec-body h3,.dshsec-body h4,.dshsec-body h5{font-weight:650;line-height:1.4;margin:14px 0 6px;color:" + theme.label + "}",
+			".dshsec-body h3{font-size:13.5px}.dshsec-body h4{font-size:12.5px}.dshsec-body h5{font-size:12px}",
+			".dshsec-body p{margin:6px 0}",
+			".dshsec-body ul,.dshsec-body ol{margin:6px 0;padding-left:20px}",
+			".dshsec-body li{margin:2px 0}",
+			".dshsec-body pre.dshsec-code{display:block;margin:8px 0;padding:10px;background:" + theme.bgModule + ";border:1px solid " + theme.borderL1 + ";border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;white-space:pre-wrap;word-break:break-word;color:" + theme.label + "}",
+			".dshsec-body code{background:" + theme.bgModule + ";border:1px solid " + theme.borderL1 + ";border-radius:4px;padding:1px 4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}",
+			".dshsec-body pre.dshsec-code code{background:none;border:none;padding:0}",
+			".dshsec-body hr{border:none;border-top:1px solid " + theme.borderL1 + ";margin:10px 0}",
+			".dshsec-body a{color:" + theme.accent + "}",
+		].join(" ");
+
+		/** Clipboard fallback for non-secure contexts (no navigator.clipboard). */
+		function legacyCopy(text) {
+			var ta = document.createElement("textarea");
+			ta.value = text;
+			ta.style.position = "fixed";
+			ta.style.opacity = "0";
+			document.body.appendChild(ta);
+			ta.select();
+			try { document.execCommand("copy"); } catch (e) { /* best-effort */ }
+			document.body.removeChild(ta);
+		}
 
 		function statusColor(status) {
 			return (STATUS_META[status] || STATUS_META.never).color;
@@ -233,9 +327,12 @@ window.__ModuleLoader__.load({
 			var useStateStatus = useState(null);
 			var status = useStateStatus[0];
 			var setStatus = useStateStatus[1];
-			var useStateReport = useState(null);
-			var report = useStateReport[0];
-			var setReport = useStateReport[1];
+			var useStateOpen = useState(null);
+			var open = useStateOpen[0];
+			var setOpen = useStateOpen[1];
+			var useStateCopied = useState(false);
+			var copied = useStateCopied[0];
+			var setCopied = useStateCopied[1];
 			var useStateBusy = useState(null);
 			var busy = useStateBusy[0];
 			var setBusy = useStateBusy[1];
@@ -265,20 +362,35 @@ window.__ModuleLoader__.load({
 				refresh();
 			}, [refresh]);
 
-			var openReport = useCallback(function (dir) {
-				setReport(null);
+			var openReport = useCallback(function (key, dir) {
+				if (open && open.key === key) { setOpen(null); return; }
+				setOpen({ key: key, text: null });
 				fetch(REPORT_URL + encodeURIComponent(dir))
 					.then(function (r) {
 						if (!r.ok) throw new Error("HTTP " + r.status);
 						return r.text();
 					})
 					.then(function (text) {
-						setReport(text);
+						setOpen({ key: key, text: text });
 					})
 					.catch(function (e) {
-						setReport("(加载报告失败: " + String(e && e.message ? e.message : e) + ")");
+						setOpen({ key: key, text: "(加载报告失败: " + String(e && e.message ? e.message : e) + ")" });
 					});
-			}, []);
+			}, [open]);
+
+			var copyReport = useCallback(function () {
+				if (!open || !open.text) return;
+				var done = function () {
+					setCopied(true);
+					setTimeout(function () { setCopied(false); }, 1500);
+				};
+				if (navigator.clipboard && navigator.clipboard.writeText) {
+					navigator.clipboard.writeText(open.text).then(done).catch(function () { legacyCopy(open.text); done(); });
+				} else {
+					legacyCopy(open.text);
+					done();
+				}
+			}, [open]);
 
 			var triggerScan = useCallback(function (keys) {
 				var list = Array.isArray(keys) ? keys : [keys];
@@ -339,13 +451,14 @@ window.__ModuleLoader__.load({
 				var initial = (p.id || "?").charAt(0).toUpperCase();
 				var actions = [];
 				if (p.reportDir) {
+					var isOpen = open !== null && open.key === e.key;
 					actions.push(react.createElement("button", {
 						key: "view",
 						style: styles.button,
 						onMouseEnter: function (ev) { ev.currentTarget.style.background = styles.buttonHover.background; },
 						onMouseLeave: function (ev) { ev.currentTarget.style.background = styles.button.background; },
-						onClick: function () { openReport(p.reportDir); },
-					}, "查看报告"));
+						onClick: function () { openReport(e.key, p.reportDir); },
+					}, isOpen ? "收起报告" : "查看报告"));
 				}
 				actions.push(react.createElement("button", {
 					key: "rescan",
@@ -376,7 +489,23 @@ window.__ModuleLoader__.load({
 						react.createElement("span", null, KIND_LABEL[p.kind] || p.kind),
 						meta.map(function (m, i) { return react.createElement("span", { key: i }, m); })),
 					p.note ? react.createElement("p", { style: styles.note }, p.note) : null,
-					react.createElement("div", { style: styles.actions }, actions));
+					react.createElement("div", { style: styles.actions }, actions),
+					open !== null && open.key === e.key
+						? react.createElement("div", { style: Object.assign({}, styles.report, { marginTop: "10px" }) },
+							react.createElement("div", { style: styles.reportHead },
+								react.createElement("p", { style: styles.reportTitle }, "审计报告"),
+								react.createElement("div", { style: { display: "flex", gap: "8px", alignItems: "center" } },
+									react.createElement("button", {
+										style: styles.buttonGhost,
+										onClick: copyReport,
+										disabled: open.text === null,
+										"aria-label": "复制报告",
+									}, copied ? "已复制" : "复制"),
+									react.createElement("button", { style: styles.buttonGhost, onClick: function () { setOpen(null); } }, "关闭"))),
+							open.text === null
+								? react.createElement("div", { style: { padding: "14px", color: theme.label3, fontSize: "12px" } }, "加载中…")
+								: react.createElement("div", { className: "dshsec-body", style: styles.reportBody, dangerouslySetInnerHTML: { __html: mdHtml(open.text) } }))
+						: null);
 			});
 
 			var body = null;
@@ -394,6 +523,7 @@ window.__ModuleLoader__.load({
 			var allKeys = entries.map(function (e) { return e.key; });
 
 			return react.createElement("div", { style: styles.wrap },
+				react.createElement("style", null, MD_CSS),
 				react.createElement("div", { style: styles.head },
 					react.createElement("div", null,
 						react.createElement("h2", { style: styles.title }, "🛡️ 安全审计",
@@ -407,13 +537,6 @@ window.__ModuleLoader__.load({
 						loading ? "刷新中…" : "刷新")),
 				react.createElement("div", { style: styles.stats }, statNodes),
 				body,
-				report !== null
-					? react.createElement("div", { style: styles.report },
-						react.createElement("div", { style: styles.reportHead },
-							react.createElement("p", { style: styles.reportTitle }, "审计报告"),
-							react.createElement("button", { style: styles.buttonGhost, onClick: function () { setReport(null); } }, "关闭")),
-						react.createElement("pre", { style: styles.pre }, report))
-					: null,
 				react.createElement("div", { style: styles.footer },
 					react.createElement("svg", { width: 14, height: 14, viewBox: "0 0 32 32", "aria-hidden": true, style: styles.footerLogo },
 						react.createElement("defs", null,
