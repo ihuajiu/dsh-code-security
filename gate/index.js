@@ -88,6 +88,11 @@ function redactSecrets(text) {
     .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, '[REDACTED:GITHUB_PAT]')
     .replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, '[REDACTED:SLACK_TOKEN]')
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[REDACTED:PRIVATE_KEY]')
+    .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, '[REDACTED:JWT]')
+    .replace(/\bAIza[0-9A-Za-z_-]{35}\b/g, '[REDACTED:GOOGLE_KEY]')
+    .replace(/\bsk_live_[0-9A-Za-z]{16,}\b/g, '[REDACTED:STRIPE_KEY]')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{20,}\b/gi, '[REDACTED:BEARER_TOKEN]')
+    .replace(/\bAccountKey=[A-Za-z0-9+/=]{40,}\b/g, '[REDACTED:AZURE_KEY]')
     .replace(/(password|passwd|secret|token|api[_-]?key|access[_-]?key)\s*[:=]\s*["']?[A-Za-z0-9_\-./+=]{8,}/gi, '$1: [REDACTED]');
 }
 
@@ -223,7 +228,15 @@ export function apply(ctx, config = {}) {
   function loadState() {
     try {
       if (!existsSync(statePath)) return { version: 1, plugins: {} };
-      return JSON.parse(readFileSync(statePath, 'utf8'));
+      const parsed = JSON.parse(readFileSync(statePath, 'utf8'));
+      // Shape check (F6): state.json is treated as untrusted input — a
+      // malformed or wrong-shaped file resets to empty instead of poisoning
+      // scans, deletions, or report lookups.
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+          parsed.plugins === null || typeof parsed.plugins !== 'object' || Array.isArray(parsed.plugins)) {
+        return { version: 1, plugins: {} };
+      }
+      return parsed;
     } catch {
       return { version: 1, plugins: {} };
     }
@@ -668,6 +681,8 @@ export function apply(ctx, config = {}) {
   // bounded concurrent queue for auto-scans
   const pending = [];
   let running = 0;
+  const queuedKeys = new Set();
+  const runningKeys = new Set();
   function pump() {
     while (running < cfg.maxParallel && pending.length > 0) {
       const job = pending.shift();
@@ -680,8 +695,23 @@ export function apply(ctx, config = {}) {
         });
     }
   }
+  /** Queue a scan with per-plugin dedup (F3): a plugin already queued or
+   *  running is never enqueued again, so repeated triggers cannot stack
+   *  duplicate LLM/CLI audits. */
   function queueScan(info, options = {}) {
-    pending.push(() => runScan(info, options));
+    if (queuedKeys.has(info.key) || runningKeys.has(info.key)) return;
+    queuedKeys.add(info.key);
+    pending.push(() =>
+      Promise.resolve()
+        .then(() => {
+          queuedKeys.delete(info.key);
+          runningKeys.add(info.key);
+          return runScan(info, options);
+        })
+        .finally(() => {
+          runningKeys.delete(info.key);
+        })
+    );
     pump();
   }
 
@@ -902,13 +932,23 @@ export function apply(ctx, config = {}) {
   // yet at apply time, registerWebRoutes() is retried from the watcher tick.
   let routesRegistered = false;
   const scanHits = []; // timestamps of recent POST /scan triggers (rate limit)
-  /** CSRF guard: allow only same-origin browser requests (Origin == Host). */
-  const sameOrigin = (req) => {
+  /** Host allowlist (defeats DNS rebinding) + same-origin guard (CSRF). */
+  const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1']);
+  const hostnameOf = (h) => {
+    const s = String(h || '');
+    if (s.startsWith('[')) {
+      const e = s.indexOf(']');
+      return e >= 0 ? s.slice(1, e) : s;
+    }
+    return s.split(':')[0];
+  };
+  const sameHost = (req) => {
+    const host = hostnameOf(req.headers && req.headers.host);
+    if (!LOCAL_HOSTNAMES.has(host)) return false; // DNS-rebinding / non-local Host -> reject
     const origin = req.headers && req.headers.origin;
-    const host = req.headers && req.headers.host;
-    if (!origin || !host) return true; // no Origin (curl/tooling) -> allowed, rate-limited elsewhere
+    if (!origin) return true; // no Origin (curl/tooling) -> allowed, rate-limited elsewhere
     try {
-      return new URL(String(origin)).host === String(host);
+      return hostnameOf(new URL(String(origin)).host) === host;
     } catch {
       return false;
     }
@@ -916,17 +956,21 @@ export function apply(ctx, config = {}) {
   /** Wipe audit records for the given plugin keys (or all) and their report dirs. */
   function clearRecords(keys, all) {
     const state = loadState();
+    const reportsRoot = canonicalizePath(resolvePath(join(cfg.stateDir, 'reports')));
     const entries = all ? Object.values(state.plugins) : keys.map((k) => state.plugins[k]).filter(Boolean);
     if (all) state.plugins = {};
     else for (const k of keys) delete state.plugins[k];
     for (const entry of entries) {
       for (const scan of entry.scans ?? []) {
-        if (scan.reportDir) {
-          try {
-            rmSync(scan.reportDir, { recursive: true, force: true });
-          } catch {
-            /* best-effort */
-          }
+        if (!scan.reportDir) continue;
+        // NEVER delete outside the reports root, even if state.json was
+        // tampered with (F1): canonicalize and contain before rmSync.
+        const canon = canonicalizePath(resolvePath(scan.reportDir));
+        if (canon !== reportsRoot && !canon.startsWith(reportsRoot + pathSep)) continue;
+        try {
+          rmSync(scan.reportDir, { recursive: true, force: true });
+        } catch {
+          /* best-effort */
         }
       }
     }
@@ -988,12 +1032,23 @@ export function apply(ctx, config = {}) {
       webServer.register({
         kind: 'exact',
         path: '/dsh-security/status.json',
-        handler: async (_req, res) => sendJson(res, await summaryPayload()),
+        handler: async (req, res) => {
+          if (!sameHost(req)) {
+            sendJson(res, { ok: false, error: 'non-local request rejected' }, 403);
+            return;
+          }
+          sendJson(res, await summaryPayload());
+        },
       });
       webServer.register({
         kind: 'exact',
         path: '/dsh-security/report',
         handler: (req, res) => {
+          if (!sameHost(req)) {
+            res.statusCode = 403;
+            res.end('non-local request rejected');
+            return;
+          }
           const parsed = new URL(req.url ?? '/', 'http://localhost');
           const id = parsed.searchParams.get('id') ?? '';
           const state = loadState();
@@ -1036,12 +1091,12 @@ export function apply(ctx, config = {}) {
         kind: 'exact',
         path: '/dsh-security/scan',
         handler: async (req, res) => {
-          // CSRF guard (F10): the settings panel is same-origin, so a
-          // cross-origin browser POST (malicious page) is rejected outright.
+          // CSRF/DNS-rebinding guard: the settings panel is same-origin from a
+          // LOCAL Host, so reject cross-origin or non-localhost requests.
           // Origin-less requests (curl, local tooling) still hit the rate
           // limit below.
-          if (!sameOrigin(req)) {
-            sendJson(res, { ok: false, error: 'cross-origin request rejected' }, 403);
+          if (!sameHost(req)) {
+            sendJson(res, { ok: false, error: 'cross-origin or non-local request rejected' }, 403);
             return;
           }
           // Rate limit (F1): the endpoint is unauthenticated on localhost, so
@@ -1080,10 +1135,10 @@ export function apply(ctx, config = {}) {
         kind: 'exact',
         path: '/dsh-security/clear',
         handler: async (req, res) => {
-          // Destructive but local: same CSRF origin guard as /scan; no LLM
+          // Destructive but local: same Host/origin guard as /scan; no LLM
           // cost involved, so no rate limit.
-          if (!sameOrigin(req)) {
-            sendJson(res, { ok: false, error: 'cross-origin request rejected' }, 403);
+          if (!sameHost(req)) {
+            sendJson(res, { ok: false, error: 'cross-origin or non-local request rejected' }, 403);
             return;
           }
           let body = '';
