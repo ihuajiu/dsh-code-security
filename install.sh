@@ -27,10 +27,15 @@ if [ -n "$src" ] && [ -f "$src/agent.cordis.yml" ] && [ -d "$src/gate" ]; then
   has_payload=1
 fi
 
+dsh="${DSH_HOME:-$HOME/.dsh}"
+
 if [ "$has_payload" -eq 0 ]; then
   # Piped mode (or a bare copy of this script): fetch the project first, then
   # re-run the installer from the clone so the preset payload and gate code are
-  # present.
+  # present. The clone lives in a PERSISTENT cache dir and is intentionally NOT
+  # deleted afterwards: `dsh plugin add` installs the gate as a file: dependency
+  # whose junction/symlink points at the source, so removing it would dangle the
+  # link and break the next `dsh` boot.
   case "$repo_url" in
     *"<owner>"*)
       echo "install.sh must run from the project checkout, or set DSH_CODE_SECURITY_REPO_URL to the published repository URL." >&2
@@ -41,25 +46,22 @@ if [ "$has_payload" -eq 0 ]; then
     echo "git is required for the piped install — install git and retry." >&2
     exit 1
   fi
-  clone_dir="$(mktemp -d)"
-  clone="$clone_dir/dsh-code-security"
-  echo "Fetching $repo_url ..."
-  git clone --depth 1 "$repo_url" "$clone"
+  cache_dir="$dsh/cache/dsh-code-security"
+  rm -rf "$cache_dir"
+  mkdir -p "$(dirname "$cache_dir")"
+  echo "Fetching $repo_url -> $cache_dir ..."
+  git clone --depth 1 "$repo_url" "$cache_dir"
   rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "git clone failed (exit $rc) — check the repository URL and network access." >&2
-    rm -rf "$clone_dir"
     exit "$rc"
   fi
   set +e
-  ( cd "$clone" && bash ./install.sh "$@" )
+  ( cd "$cache_dir" && bash ./install.sh "$@" )
   rc=$?
   set -e
-  rm -rf "$clone_dir"
   exit "$rc"
 fi
-
-dsh="${DSH_HOME:-$HOME/.dsh}"
 profile="${1:-web}"
 
 # ── 1. agent preset ─────────────────────────────────────────────────────────

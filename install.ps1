@@ -19,11 +19,15 @@ $repoUrl = if ($env:DSH_CODE_SECURITY_REPO_URL) { $env:DSH_CODE_SECURITY_REPO_UR
 $scriptPath = $MyInvocation.MyCommand.Path
 $src = if ($scriptPath) { Split-Path -Parent $scriptPath } else { '' }
 $hasPayload = $src -and (Test-Path (Join-Path $src 'agent.cordis.yml')) -and (Test-Path (Join-Path $src 'gate'))
+$dsh = Join-Path $env:USERPROFILE '.dsh'
 
 if (-not $hasPayload) {
   # Piped mode (or a bare copy of this script): fetch the project first, then
   # re-run the installer from the clone so the preset payload and gate code are
-  # present.
+  # present. The clone lives in a PERSISTENT cache dir and is intentionally NOT
+  # deleted afterwards: `dsh plugin add` installs the gate as a file: dependency
+  # whose junction points at the source, so removing it would dangle the
+  # junction and break the next `dsh` boot.
   if ($repoUrl -match '<owner>') {
     Write-Error 'install.ps1 must be run from the project checkout, or set DSH_CODE_SECURITY_REPO_URL to the published repository URL.'
     exit 1
@@ -32,22 +36,18 @@ if (-not $hasPayload) {
     Write-Error 'git is required for the piped install — install git (https://git-scm.com) and retry.'
     exit 1
   }
-  $clone = Join-Path $env:TEMP ('dsh-code-security-' + [guid]::NewGuid().ToString('N'))
-  Write-Host "Fetching $repoUrl ..." -ForegroundColor Cyan
-  git clone --depth 1 "$repoUrl" "$clone"
+  $cacheDir = Join-Path $dsh 'cache\dsh-code-security'
+  if (Test-Path $cacheDir) { Remove-Item $cacheDir -Recurse -Force }
+  New-Item -ItemType Directory -Path (Split-Path $cacheDir -Parent) -Force | Out-Null
+  Write-Host "Fetching $repoUrl -> $cacheDir ..." -ForegroundColor Cyan
+  git clone --depth 1 "$repoUrl" "$cacheDir"
   if ($LASTEXITCODE -ne 0) {
     Write-Error "git clone failed (exit $LASTEXITCODE) — check the repository URL and network access."
     exit $LASTEXITCODE
   }
-  try {
-    & (Join-Path $clone 'install.ps1') @args
-    exit $LASTEXITCODE
-  } finally {
-    Remove-Item $clone -Recurse -Force -ErrorAction SilentlyContinue
-  }
+  & (Join-Path $cacheDir 'install.ps1') @args
+  exit $LASTEXITCODE
 }
-
-$dsh = Join-Path $env:USERPROFILE '.dsh'
 
 # ── 1. agent preset ─────────────────────────────────────────────────────────
 $presetDest = Join-Path $dsh '.agent-presets\dsh-security'
