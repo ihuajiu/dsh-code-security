@@ -20,7 +20,10 @@
 //      arguments (target, prompt files, knowledge base, output dir) must
 //      resolve inside the run's working directory unless the plugin config
 //      explicitly sets `allowTargetsOutsideWorkdir: true`, so a scan cannot be
-//      pointed at `~/.ssh`, `/etc`, or any other unrelated readable tree.
+//      pointed at `~/.ssh`, `/etc`, or any other unrelated readable tree. The
+//      `workdir` argument itself is confined the same way: it must resolve
+//      inside the SESSION working directory, so a prompt-injected `workdir`
+//      cannot launder an out-of-scope target past the containment check.
 //   3. Subcommand whitelist. `dsh_security_cli` accepts only a fixed set of
 //      top-level subcommands (`cliAllowedVerbs`). `scan`/`bulk-scan` are
 //      intentionally NOT in it: scans must go through `dsh_security_scan`,
@@ -199,8 +202,11 @@ const PROVIDERS = ['openai', 'openrouter', 'fireworks', 'amazon-bedrock'];
  * Resolve a scan/findings path argument against the run's working directory
  * and enforce containment on CANONICAL paths: the resolved path must stay
  * inside the canonical working directory unless `allowOutside` is set. Remote
- * repository references (https/ssh/git URLs and scp-style refs) pass through —
- * the CLI fetches those over the network instead of reading local paths.
+ * repository references pass through — the CLI fetches those over the network
+ * instead of reading local paths. Only unambiguous network URLs (https/ssh/git)
+ * and scp-style refs that do NOT name an existing local path are treated as
+ * remote: a file/dir that merely LOOKS scp-style (e.g. a symlink named
+ * `user@host:x`) goes through normal containment (gate finding 1).
  * `file://` is deliberately NOT allowed (it denotes local files). Throws with
  * an actionable message on violation.
  */
@@ -212,9 +218,26 @@ function resolveTarget(rawTarget, workdir, allowOutside) {
   if (/^file:\/\//i.test(target)) {
     throw new Error('dsh_security: file:// targets are not supported; use a local path inside the working directory');
   }
-  // Remote references are the CLI's business, not local file reads.
-  if (/^(https?|ssh|git):\/\//i.test(target) || /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+:/.test(target)) {
+  // Unambiguous network URLs are the CLI's business, not local file reads.
+  if (/^(https?|ssh|git):\/\//i.test(target)) {
     return target;
+  }
+  // scp-style refs (user@host:path) are AMBIGUOUS: they may be a local path
+  // that merely LOOKS remote. If a file/dir with that exact name exists under
+  // the working directory (including a symlink), it is a LOCAL path and must
+  // go through containment below — a bare regex pass-through would let a
+  // symlink named e.g. `user@host:x` escape the working directory. Only
+  // genuinely non-existent references are handed to the CLI as remote fetches.
+  if (/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+:/.test(target)) {
+    const probeRoot = canonicalizePath(resolvePath(workdir || (typeof process !== 'undefined' ? process.cwd() : '.')));
+    let localExists = false;
+    try {
+      realpathSync(resolvePath(probeRoot, target));
+      localExists = true;
+    } catch {
+      /* not an existing local path -> treat as a remote fetch */
+    }
+    if (!localExists) return target;
   }
   // Expand a leading `~` (the shell would expand it later; we must check it).
   if (target === '~') target = homedir();
@@ -280,7 +303,25 @@ function renderProcessRead(read) {
 
 export function apply(ctx, config = {}) {
   // Trusted, administrator-set CLI prefix (split once; not model input).
-  const cliPrefix = (config.cliCommand ?? 'npx --yes @openai/codex-security').split(/\s+/).filter(Boolean);
+  // Version-pinned (F4): npx --yes fetches the latest publish unless the
+  // package name carries an exact version. Bump deliberately and re-test.
+  // The prefix is admin config but is still validated: shell metacharacters
+  // (incl. backslash, newline, tabs) are rejected and the pinned default is
+  // used instead, so a misconfigured cliCommand cannot become an arbitrary
+  // command (gate finding 4).
+  const configuredCliCommand = config.cliCommand ?? 'npx --yes @openai/codex-security@0.1.12';
+  const cliCommand =
+    typeof configuredCliCommand === 'string' && !/[;&|`$<>()%^\\\r\n\t]/.test(configuredCliCommand)
+      ? configuredCliCommand
+      : (() => {
+          if (ctx.logger) {
+            ctx.logger.warn(
+              'codex-security: cliCommand contains shell metacharacters — refusing it and falling back to the pinned default'
+            );
+          }
+          return 'npx --yes @openai/codex-security@0.1.12';
+        })();
+  const cliPrefix = cliCommand.split(/\s+/).filter(Boolean);
   // Foreground scan default and hard cap: anything over the cap must run in
   // the background, so a hung `npx` cannot tie up the shell executor.
   const scanTimeoutMs = config.scanTimeoutMs ?? 300000;
@@ -292,7 +333,12 @@ export function apply(ctx, config = {}) {
   // policy). Extend via config `cliAllowedVerbs`.
   const cliAllowedVerbs = config.cliAllowedVerbs ?? [
     '--help', '-h', '--version', '--schema', '--llms', '--llms-full',
-    'info', 'login', 'logout', 'scans', 'findings', 'export',
+    'info', 'logout', 'scans', 'findings', 'export',
+    // `login` is intentionally NOT allowlisted by default (gate finding 2):
+    // it prompts for / accepts credentials, and a prompt-injected command
+    // could pass an API key as a shell argument. Authenticate via env vars
+    // (OPENAI_API_KEY / CODEX_API_KEY / provider keys) instead; an
+    // administrator may re-add `login` via config cliAllowedVerbs.
   ];
   const shell = detectShell(config.shell);
 
@@ -310,10 +356,39 @@ export function apply(ctx, config = {}) {
   const tools = ctx.get('tools');
   if (tools === undefined) return;
 
-  /** Resolve the working directory for a call: explicit arg, else session cwd. */
+  /**
+   * Resolve the working directory for a call: explicit arg, else session cwd.
+   * A model-supplied `workdir` is treated like any other path argument and
+   * must resolve INSIDE the session working directory (canonicalized through
+   * symlinks), so a prompt-injected `workdir` such as `~/.ssh` combined with
+   * a `.` target cannot bypass target confinement and ship arbitrary host
+   * files to the scan provider. file:// and remote URLs are rejected: the
+   * workdir must be a local directory.
+   */
   function resolveWorkdir(exec, argWorkdir) {
-    if (argWorkdir !== undefined) return argWorkdir;
-    return exec.agent?.session?.header?.cwd;
+    const sessionCwd = exec.agent?.session?.header?.cwd ?? (typeof process !== 'undefined' ? process.cwd() : '.');
+    if (argWorkdir === undefined) return sessionCwd;
+    const raw = String(argWorkdir);
+    if (raw.length === 0) return sessionCwd;
+    if (/^file:\/\//i.test(raw) || /^(https?|ssh|git):\/\//i.test(raw) || /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+:/.test(raw)) {
+      throw new Error('dsh_security: workdir must be a local directory path (remote or file:// references are not valid working directories)');
+    }
+    let expanded = raw;
+    if (expanded === '~') expanded = homedir();
+    else if (expanded.startsWith('~/') || expanded.startsWith('~\\')) expanded = homedir() + expanded.slice(1);
+    const sessionRoot = canonicalizePath(resolvePath(sessionCwd));
+    const resolved = canonicalizePath(resolvePath(sessionRoot, expanded));
+    const keyed = (p) => (typeof process !== 'undefined' && process.platform === 'win32' ? p.toLowerCase() : p);
+    const rootKey = keyed(sessionRoot);
+    const workdirKey = keyed(resolved);
+    if (workdirKey !== rootKey && !workdirKey.startsWith(rootKey + pathSep)) {
+      throw new Error(
+        `dsh_security: workdir ${JSON.stringify(raw)} resolves outside the session working directory (${sessionRoot}); ` +
+        'the scan must run inside the session working directory. To scan another location, pass it as the target ' +
+        '(an administrator may set allowTargetsOutsideWorkdir: true to permit outside targets).'
+      );
+    }
+    return resolved;
   }
 
   /**
@@ -446,7 +521,7 @@ export function apply(ctx, config = {}) {
   register({
     name: 'dsh_security_scan',
     description:
-      'Run an OpenAI Codex Security scan on a repository, directory, or scoped path and return the CLI output (progress on stderr, scan results/manifest on stdout). Requires Codex Security authentication: OPENAI_API_KEY/CODEX_API_KEY env, or a prior `dsh_security_cli` `login`. Path arguments must resolve inside the working directory (targets outside it are rejected; remote git URLs are allowed). Foreground runs are capped at 5 minutes — set run_in_background: true for anything longer and read it with the job tools.',
+      'Run an OpenAI Codex Security scan on a repository, directory, or scoped path and return the CLI output (progress on stderr, scan results/manifest on stdout). Requires Codex Security authentication: OPENAI_API_KEY/CODEX_API_KEY (or provider keys) via the environment. Path arguments (including workdir) must resolve inside the session working directory (targets outside it are rejected; remote git URLs are allowed). Foreground runs are capped at 5 minutes — set run_in_background: true for anything longer and read it with the job tools.',
     parameters: {
       type: 'object',
       properties: {
@@ -466,8 +541,8 @@ export function apply(ctx, config = {}) {
         auth: { type: 'string', enum: ['chatgpt', 'api-key'], description: 'Credential selection for interactive scans.' },
         output_dir: { type: 'string', description: 'Directory for scan results (defaults to the Codex Security scans dir); must resolve inside the working directory when provided.' },
         verbose: { type: 'boolean', description: 'Print scan diagnostics to stderr.' },
-        workdir: { type: 'string', description: 'Working directory for the scan (defaults to the session working directory).' },
-        timeout_ms: { type: 'number', description: 'Foreground timeout in ms (default 300000). Ignored when run_in_background is true. Values above 300000 require run_in_background: true.' },
+        workdir: { type: 'string', description: 'Working directory for the scan (defaults to the session working directory; must resolve inside it).' },
+        timeout_ms: { type: 'number', description: 'Foreground timeout in ms (default 300000; integer 1000–86400000). Ignored when run_in_background is true. Values above 300000 require run_in_background: true.' },
         run_in_background: { type: 'boolean', description: 'Start the scan as a background job and return its job id (required for scans longer than 5 minutes).' },
       },
     },
@@ -508,7 +583,11 @@ export function apply(ctx, config = {}) {
       if (args.output_dir) parts.push('--output-dir', quoteArg(resolveTarget(args.output_dir, workdir, allowTargetsOutsideWorkdir), shell));
       if (args.verbose) parts.push('--verbose');
       const result = await runCli(exec, parts, {
-        timeoutMs: args.timeout_ms ?? scanTimeoutMs,
+        // Bound the model-supplied timeout (gate finding 3): reject
+        // non-integer / out-of-range values instead of passing them through.
+        timeoutMs: args.timeout_ms === undefined
+          ? scanTimeoutMs
+          : toBoundedInt(args.timeout_ms, { min: 1000, max: 86400000, name: 'timeout_ms' }),
         workdir,
         background: args.run_in_background === true,
       });
@@ -527,8 +606,8 @@ export function apply(ctx, config = {}) {
       type: 'object',
       properties: {
         repository: { type: 'string', description: 'Repository path; defaults to the working directory. Must resolve inside the working directory.' },
-        workdir: { type: 'string', description: 'Working directory (defaults to the session working directory).' },
-        timeout_ms: { type: 'number', description: 'Timeout in ms (default 120000).' },
+        workdir: { type: 'string', description: 'Working directory (defaults to the session working directory; must resolve inside it).' },
+        timeout_ms: { type: 'number', description: 'Timeout in ms (default 120000; integer 1000–86400000).' },
       },
     },
     output,
@@ -541,7 +620,9 @@ export function apply(ctx, config = {}) {
         quoteArg(resolveTarget(args.repository, workdir, allowTargetsOutsideWorkdir), shell),
       ];
       const result = await runCli(exec, parts, {
-        timeoutMs: args.timeout_ms ?? 120000,
+        timeoutMs: args.timeout_ms === undefined
+          ? 120000
+          : toBoundedInt(args.timeout_ms, { min: 1000, max: 86400000, name: 'timeout_ms' }),
         workdir,
       });
       return result.text;
@@ -558,8 +639,8 @@ export function apply(ctx, config = {}) {
       properties: {
         before_scan_id: { type: 'string', description: 'The earlier scan id.' },
         after_scan_id: { type: 'string', description: 'The later scan id.' },
-        workdir: { type: 'string', description: 'Working directory (defaults to the session working directory).' },
-        timeout_ms: { type: 'number', description: 'Timeout in ms (default 120000).' },
+        workdir: { type: 'string', description: 'Working directory (defaults to the session working directory; must resolve inside it).' },
+        timeout_ms: { type: 'number', description: 'Timeout in ms (default 120000; integer 1000–86400000).' },
       },
       required: ['before_scan_id', 'after_scan_id'],
     },
@@ -573,7 +654,9 @@ export function apply(ctx, config = {}) {
         quoteArg(args.after_scan_id, shell),
       ];
       const result = await runCli(exec, parts, {
-        timeoutMs: args.timeout_ms ?? 120000,
+        timeoutMs: args.timeout_ms === undefined
+          ? 120000
+          : toBoundedInt(args.timeout_ms, { min: 1000, max: 86400000, name: 'timeout_ms' }),
         workdir: resolveWorkdir(exec, args.workdir),
       });
       return result.text;
@@ -584,13 +667,13 @@ export function apply(ctx, config = {}) {
   register({
     name: 'dsh_security_cli',
     description:
-      'Run an allowlisted @openai/codex-security CLI command (e.g. `login`, `logout`, `info`, `scans list`, `scans logs SCAN_ID`, `findings list`, `scans compare`, `export ...`, `--help`). Provide the subcommand and its arguments exactly as the CLI expects, without the leading `codex-security` binary name. Only the top-level verbs in the whitelist are accepted — use the dedicated dsh_security_scan tool for scans (it applies path and timeout policy). Arguments are passed as shell literals; separate them with spaces.',
+      'Run an allowlisted @openai/codex-security CLI command (e.g. `logout`, `info`, `scans list`, `scans logs SCAN_ID`, `findings list`, `scans compare`, `export ...`, `--help`). `login` is NOT allowlisted by default — authenticate with OPENAI_API_KEY/CODEX_API_KEY (or provider keys) via the environment instead. Provide the subcommand and its arguments exactly as the CLI expects, without the leading `codex-security` binary name. Only the top-level verbs in the whitelist are accepted — use the dedicated dsh_security_scan tool for scans (it applies path and timeout policy). Arguments are passed as shell literals; separate them with spaces.',
     parameters: {
       type: 'object',
       properties: {
-        command: { type: 'string', description: 'Full subcommand and arguments, e.g. `login` or `scans logs <scan-id>`. The first token must be an allowlisted verb.' },
-        workdir: { type: 'string', description: 'Working directory (defaults to the session working directory).' },
-        timeout_ms: { type: 'number', description: 'Timeout in ms (default 120000); values above 300000 require run_in_background: true.' },
+        command: { type: 'string', description: 'Full subcommand and arguments, e.g. `info` or `scans logs <scan-id>`. The first token must be an allowlisted verb (`login` is not allowlisted by default).' },
+        workdir: { type: 'string', description: 'Working directory (defaults to the session working directory; must resolve inside it).' },
+        timeout_ms: { type: 'number', description: 'Timeout in ms (default 120000; integer 1000–86400000); values above 300000 require run_in_background: true.' },
         run_in_background: { type: 'boolean', description: 'Start the command as a background job and return its job id.' },
       },
       required: ['command'],
@@ -612,7 +695,9 @@ export function apply(ctx, config = {}) {
       }
       const parts = [...cliPrefix, ...tokens.map((token) => quoteArg(token, shell))];
       const result = await runCli(exec, parts, {
-        timeoutMs: args.timeout_ms ?? 120000,
+        timeoutMs: args.timeout_ms === undefined
+          ? 120000
+          : toBoundedInt(args.timeout_ms, { min: 1000, max: 86400000, name: 'timeout_ms' }),
         workdir: resolveWorkdir(exec, args.workdir),
         background: args.run_in_background === true,
       });

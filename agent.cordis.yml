@@ -228,7 +228,8 @@
 - id: dsh-security-tools
   name: ./plugins/dsh-security/index.js
   config:
-    cliCommand: npx --yes @openai/codex-security
+    # Version-pinned (F4): bump deliberately when upgrading the CLI.
+    cliCommand: npx --yes @openai/codex-security@0.1.12
     # Foreground scan timeout default and hard cap (ms). Anything whose
     # effective timeout exceeds maxForegroundTimeoutMs must set
     # run_in_background: true, so a hung `npx` invocation cannot tie up the

@@ -43,10 +43,12 @@ The `dsh_security_*` CLI tools are **optional**: they shell out to
 OpenAI's scan pipeline. Use them only when the user explicitly asks for an
 OpenAI Codex Security scan and it is authenticated:
 
-- Authenticate once with `dsh_security_cli` `login`, or set
-  `OPENAI_API_KEY` / `CODEX_API_KEY` (preferred for noninteractive runs;
-  for provider models set `OPENROUTER_API_KEY`, `FIREWORKS_API_KEY`, or the
-  Bedrock env vars and pass `--provider` / `--model`).
+- Authenticate via the environment: set `OPENAI_API_KEY` / `CODEX_API_KEY`
+  (preferred for noninteractive runs; for provider models set
+  `OPENROUTER_API_KEY`, `FIREWORKS_API_KEY`, or the Bedrock env vars and pass
+  `--provider` / `--model`). `dsh_security_cli` `login` is NOT allowlisted by
+  default (credentials must not travel as shell arguments); an administrator
+  can re-add it via the plugin config `cliAllowedVerbs`.
 
 Common CLI flows (optional):
 

@@ -36,7 +36,9 @@
 - **默认路径（本地模型审计）**：无需任何外部认证/API key，使用宿主 `llm` 服务
   （同会话模型路由）。
 - 可选路径（CLI 工具 / 门禁 `engine: 'cli'`）：Node.js ≥ 22.13 / Python ≥ 3.10 /
-  网络 + `npx @openai/codex-security login` 或 `OPENAI_API_KEY` / `CODEX_API_KEY`。
+  网络 + `npx @openai/codex-security@0.1.12 login` 或 `OPENAI_API_KEY` / `CODEX_API_KEY`。
+  > 供应链加固：CLI 版本钉扎为 `@openai/codex-security@0.1.12`（升级时同步修改
+  > `agent.cordis.yml` 的 `cliCommand` 与插件/门禁的默认值）。
 
 ## 安装（快速开始）
 
