@@ -41,6 +41,13 @@ const REPORT_FOOTER =
  * when nothing exists or a symlink loop is detected. Used so path containment
  * cannot be bypassed by a symlink inside a plugin root pointing outside it,
  * and so harvests never escape the plugin directory.
+ *
+ * The lexical fallback is a deliberate, bounded weakening (audit finding 3):
+ * a path that cannot be fully resolved (missing tail or unreadable ancestor)
+ * is still checked lexically, and every later use RE-canonicalizes —
+ * harvestFiles re-validates each file against the canonical root and
+ * clearRecords/report-serving re-canonicalize before touching the filesystem,
+ * so a path swapped to a symlink after the check is caught at read time.
  */
 function canonicalizePath(p) {
   let probe = p;
@@ -65,6 +72,7 @@ const SECRET_FILE_PATTERNS = [
   'credentials.json', 'credentials.yml', 'credentials.yaml',
   'secrets.yml', 'secrets.yaml', '*.secret', '*.credentials',
   'service-account*.json', 'client-secret*.json', 'oauth*.json',
+  'docker-config*.json', 'dockerconfig*.json',
 ];
 /** Match one basename against secret patterns (mini-glob, `*` wildcard). */
 function matchesSecretName(name, patterns = SECRET_FILE_PATTERNS) {
@@ -94,6 +102,12 @@ function redactSecrets(text) {
     .replace(/\bsk_live_[0-9A-Za-z]{16,}\b/g, '[REDACTED:STRIPE_KEY]')
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{20,}\b/gi, '[REDACTED:BEARER_TOKEN]')
     .replace(/\bAccountKey=[A-Za-z0-9+/=]{40,}\b/g, '[REDACTED:AZURE_KEY]')
+    // URI-embedded credentials (https://user:pass@host) — audit finding 5.
+    .replace(/\b((?:https?|ftp):\/\/)[^\s/@]+(?::[^\s/@]+)?@/gi, '$1[REDACTED]@')
+    // Docker registry auth entries ({"auths":{"...":{"auth":"<base64>"}}}).
+    .replace(/"(?:auth|identitytoken)"\s*:\s*"[A-Za-z0-9+/=]{8,}"/g, '"auth": "[REDACTED]"')
+    // AWS config/credentials inline assignments (aws_access_key_id = ...).
+    .replace(/\b(aws_access_key_id|aws_secret_access_key|aws_session_token)\s*[=:]\s*[^\s,;]+/gi, '$1: [REDACTED]')
     .replace(/(password|passwd|secret|token|api[_-]?key|access[_-]?key)\s*[:=]\s*["']?[A-Za-z0-9_\-./+=]{8,}/gi, '$1: [REDACTED]');
 }
 
@@ -140,7 +154,7 @@ export function apply(ctx, config = {}) {
     // external auth, offline source review); 'cli' shells out to the
     // @openai/codex-security CLI (requires its own authentication).
     engine: config.engine ?? 'llm',
-    cliCommand: config.cliCommand ?? 'npx --yes @openai/codex-security',
+    cliCommand: config.cliCommand ?? 'npx --yes @openai/codex-security@0.1.12', // version-pinned (F4); bump deliberately
     // Model route override for the llm engine; defaults to the deployment's
     // agent default selection (the same route this session uses).
     provider: config.provider,
@@ -174,15 +188,33 @@ export function apply(ctx, config = {}) {
     // thinking so the whole budget goes to the report text.
     reasoningEffort: config.reasoningEffort ?? 'off',
   };
-  // Validate the CLI engine command (F4/F5): it is admin config, but reject
-  // non-strings and shell metacharacters (incl. backslash, newline, tabs) so a
-  // misconfigured value cannot become an arbitrary command.
-  if (typeof cfg.cliCommand !== 'string' || /[;&|`$<>()%^\\\r\n\t]/.test(cfg.cliCommand)) {
+  // Validate the CLI engine command (audit finding 1): an ALLOWLIST, not a
+  // metacharacter denylist — a denylist lets `sh -c "evil"` through. The first
+  // token must be a known launcher and every token must consist of safe
+  // characters, so an arbitrary shell command can never be configured.
+  const CLI_FIRST_TOKENS = new Set(['npx', 'npm', 'node', 'codex-security']);
+  const CLI_TOKEN_RE = /^[A-Za-z0-9_@./:=%-]+$/;
+  const cliTokens = typeof cfg.cliCommand === 'string' ? cfg.cliCommand.split(/\s+/).filter(Boolean) : [];
+  const cliCommandOk =
+    cliTokens.length > 0 &&
+    CLI_FIRST_TOKENS.has(cliTokens[0]) &&
+    cliTokens.every((token) => CLI_TOKEN_RE.test(token));
+  if (!cliCommandOk) {
     console.error(
-      '[dsh-security-gate] cliCommand contains shell metacharacters (' + JSON.stringify(cfg.cliCommand) +
+      '[dsh-security-gate] cliCommand is not a safe launcher command (' + JSON.stringify(cfg.cliCommand) +
         ') — refusing it and falling back to the default.'
     );
-    cfg.cliCommand = 'npx --yes @openai/codex-security';
+    cfg.cliCommand = 'npx --yes @openai/codex-security@0.1.12'; // version-pinned (F4)
+  }
+  // The CLI engine executes the full user-supplied CLI binary; it must run
+  // under an EXPLICIT sandbox mode. Refuse CLI scans without one (fail-closed,
+  // audit finding 1); the llm engine never shells out and is unaffected.
+  if (cfg.engine === 'cli' && cfg.sandboxMode === undefined) {
+    console.warn(
+      '[dsh-security-gate] engine is "cli" but sandboxMode is not set — CLI scans will fail until ' +
+        'sandboxMode is configured (e.g. "workspace-write"; "danger-full-access" only if the CLI must ' +
+        'write outside the workspace).'
+    );
   }
   mkdirSync(cfg.stateDir, { recursive: true, mode: 0o700 });
 
@@ -500,6 +532,12 @@ export function apply(ctx, config = {}) {
 
   /** CLI engine: shell out to the @openai/codex-security CLI (requires its own auth). */
   async function runScanCli(info, scan, state, reportDir, { timeoutMs, signal }) {
+    // Audit finding 1: never run the CLI engine unconfined.
+    if (cfg.sandboxMode === undefined) {
+      scan.status = 'failed';
+      scan.note = 'engine "cli" requires an explicit sandboxMode (e.g. "workspace-write"); refusing to run the CLI unconfined';
+      return;
+    }
     const shell = ctx.get('shell');
     if (shell === undefined) {
       scan.status = 'failed';
@@ -862,6 +900,11 @@ export function apply(ctx, config = {}) {
       // (canonicalized through symlinks). An unconstrained path target would
       // let any scan harvest arbitrary files outside the plugin tree and ship
       // them to the model provider.
+      // Note (audit finding 7): the raw `path:` key is derived from user
+      // input, but it is only a state key — report dirs use safeKey(), and
+      // every filesystem use (harvest, CLI scan, clear, report serving)
+      // re-canonicalizes and re-validates against the plugin root, so a
+      // tampered state.json cannot redirect a read or write outside it.
       if (/^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('/')) {
         const resolved = canonicalizePath(resolvePath(trimmed));
         const keyed = (p) => (typeof process !== 'undefined' && process.platform === 'win32' ? p.toLowerCase() : p);
@@ -993,7 +1036,20 @@ export function apply(ctx, config = {}) {
   // Registered directly (fiber owns disposal). If webServer is not available
   // yet at apply time, registerWebRoutes() is retried from the watcher tick.
   let routesRegistered = false;
-  const scanHits = []; // timestamps of recent POST /scan triggers (rate limit)
+  // Per-bucket timestamp queues for localhost trigger rate limiting.
+  // /clear is destructive, so it is rate-limited like /scan (audit finding 6).
+  const rateBuckets = { scan: [], clear: [] };
+  function rateLimited(res, bucket) {
+    const now = Date.now();
+    const hits = rateBuckets[bucket];
+    while (hits.length > 0 && now - hits[0] > cfg.scanRateWindowMs) hits.shift();
+    if (hits.length >= cfg.scanRateLimit) {
+      sendJson(res, { ok: false, error: 'rate limited: too many requests (max ' + cfg.scanRateLimit + ' per ' + cfg.scanRateWindowMs + 'ms)' }, 429);
+      return false;
+    }
+    hits.push(now);
+    return true;
+  }
   /** Host allowlist (defeats DNS rebinding) + same-origin guard (CSRF). */
   const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1']);
   const hostnameOf = (h) => {
@@ -1171,16 +1227,9 @@ export function apply(ctx, config = {}) {
             sendJson(res, { ok: false, error: 'cross-origin, non-local, or unauthenticated request rejected' }, 403);
             return;
           }
-          // Rate limit (F1): the endpoint is unauthenticated on localhost, so
-          // bound how often scans can be triggered to avoid resource/billing
-          // exhaustion.
-          const now = Date.now();
-          while (scanHits.length > 0 && now - scanHits[0] > cfg.scanRateWindowMs) scanHits.shift();
-          if (scanHits.length >= cfg.scanRateLimit) {
-            sendJson(res, { ok: false, error: 'rate limited: too many scan triggers (max ' + cfg.scanRateLimit + ' per ' + cfg.scanRateWindowMs + 'ms)' }, 429);
-            return;
-          }
-          scanHits.push(now);
+          // Rate limit: bound how often scans can be triggered to avoid
+          // resource/billing exhaustion.
+          if (!rateLimited(res, 'scan')) return;
           let body = '';
           for await (const chunk of req) body += chunk;
           let plugins = [];
@@ -1207,12 +1256,14 @@ export function apply(ctx, config = {}) {
         kind: 'exact',
         path: '/dsh-security/clear',
         handler: async (req, res) => {
-          // Destructive but local: same Host/origin + token guard as /scan;
-          // no LLM cost involved, so no rate limit.
+          // Destructive but local: same Host/origin + token guard as /scan,
+          // plus a rate limit (audit finding 6) so a local process cannot
+          // churn rmSync deletions.
           if (!sameHost(req) || !tokenOk(req)) {
             sendJson(res, { ok: false, error: 'cross-origin, non-local, or unauthenticated request rejected' }, 403);
             return;
           }
+          if (!rateLimited(res, 'clear')) return;
           let body = '';
           for await (const chunk of req) body += chunk;
           let parsed = {};

@@ -77,7 +77,7 @@ Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要
 | `intervalMs` | `60000` | 轮询间隔 |
 | `ignorePrefixes` | `["@deepseek-ai/"]` | 按包名前缀忽略（出厂底座） |
 | `ignoreIds` | `[]` | 按预设 id / 包名精确忽略 |
-| `cliCommand` | `npx --yes @openai/codex-security` | CLI 引擎的调用 |
+| `cliCommand` | `npx --yes @openai/codex-security@0.1.12` | CLI 引擎的调用（版本钉扎；**白名单校验**：首 token 限 `npx`/`npm`/`node`/`codex-security`，全部 token 限安全字符，非法值回退默认） |
 | `stateDir` | `<DSH_HOME>/dsh-security` | 状态/报告目录 |
 | `scanTimeoutMs` | `900000` | CLI 引擎超时（15 分钟） |
 | `maxHarvestChars` | `400000` | llm 引擎源码采集字符预算 |
@@ -86,10 +86,10 @@ Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要
 | `reasoningEffort` | `off` | 关闭模型推理（推理会吃光输出预算，导致只有推理没有结论）；需要推理可设 `high`/`max` |
 | `llmTimeoutMs` | `240000` | llm 调用超时（4 分钟），防扫描卡 `running` |
 | `maxParallel` | `2` | 并发审计数 |
-| `sandboxMode` | 继承执行器默认 | 仅 CLI 引擎需要；本机建议 `danger-full-access` |
+| `sandboxMode` | **必填（cli 引擎）** | CLI 引擎**必须**显式配置沙箱模式，否则扫描直接失败（fail-closed）；llm 引擎不受影响。推荐 `workspace-write`；仅当 CLI 需要写工作区外（如写报告目录）时才用 `danger-full-access`，且应知晓其等于非受限执行 |
 | `harvestExcludePatterns` | 内置密钥清单 | 采集时**永不读取**的文件名模式（`.env*`、`*.pem`、`*.key`、`id_rsa`、`credentials.json`、`secrets.*`、`service-account*.json` 等） |
 | `redactSecrets` | `true` | 采集文本发给模型前做**行内密钥脱敏**（云厂商 key、私钥块、`password=...` 等） |
-| `scanRateLimit` / `scanRateWindowMs` | `10` / `10000` | `POST /dsh-security/scan` 的速率限制（窗口内最多触发次数），防资源/计费耗尽 |
+| `scanRateLimit` / `scanRateWindowMs` | `10` / `10000` | `POST /dsh-security/scan` 与 `POST /dsh-security/clear` 的速率限制（窗口内最多触发次数），防资源/计费耗尽与删除风暴 |
 
 ## 前置条件
 
@@ -113,7 +113,8 @@ Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要
   之外的任何绝对路径一律拒绝。
 - **密钥文件永不外发**：采集阶段直接跳过 `.env*`、`*.pem`、`*.key`、`id_rsa`、
   `credentials.json`、`secrets.*` 等敏感文件（点开头文件本就排除）；其余文本在发给
-  模型前还会做**行内密钥脱敏**（AWS/`sk-`/GitHub token、私钥块、`password=` 等）。
+  模型前还会做**行内密钥脱敏**（AWS/`sk-`/GitHub token、私钥块、`password=` 等，含
+  URI 内嵌口令 `https://user:pass@host`、Docker registry `auth`、AWS 行内赋值）。
 - **本地端点鉴权（令牌白名单）**：四个 `/dsh-security/*` 端点要求 `x-dsh-security-token`
   请求头。门禁挂载时生成随机令牌并持久化到 `<stateDir>/token`（0600），同时通过
   `webServer.tapIndex` 注入到页面（`window.__DSH_SECURITY_TOKEN__`），设置面板自动携带。
@@ -123,7 +124,7 @@ Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要
   irm http://127.0.0.1:3080/dsh-security/status.json -Headers @{ 'x-dsh-security-token' = $tok }
   ```
   管理员可在配置 `endpointTokens` 追加白名单令牌。守卫链：Host 必须是本地主机名
-  （防 DNS rebinding）+ Origin 匹配（CSRF）+ 令牌校验（本地进程）；`POST /scan` 另限流
-  （默认 10 次/10 秒、单请求 ≤50 目标）。
+  （防 DNS rebinding）+ Origin 匹配（CSRF）+ 令牌校验（本地进程）；`POST /scan` 与
+  `POST /clear` 均限流（默认 10 次/10 秒、单请求 ≤50 目标）。
 - **状态目录权限**：`<stateDir>` 与报告目录按 `0700` 创建，`state.json`/
   `summary.json`/`report.md`/`runner.log` 按 `0600` 写入（POSIX）。

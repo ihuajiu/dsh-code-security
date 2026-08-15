@@ -226,6 +226,11 @@ window.__ModuleLoader__.load({
 		// Zero-dependency: escape first, then apply a small safe tag set, and
 		// mount the result via dangerouslySetInnerHTML (no user HTML survives
 		// the escape pass).
+		// SECURITY INVARIANT (audit finding 2): every rendering path must apply
+		// mdEscape() to untrusted text BEFORE mdInline()/tag construction, and
+		// link hrefs must stay restricted to https?://. Any new renderer branch
+		// (tables, headings, lists, code) must preserve this order or the
+		// dangerouslySetInnerHTML mount becomes an XSS sink.
 		function mdEscape(s) {
 			return String(s)
 				.replace(/&/g, "&amp;")
