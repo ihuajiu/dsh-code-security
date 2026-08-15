@@ -557,6 +557,13 @@ export function apply(ctx, config = {}) {
     scan.reportDir = reportDir;
     saveState(state);
 
+    console.log(
+      '[dsh-security-gate] scan START ' + info.key + ' (' + info.kind + ')' +
+      (cfg.engine === 'llm' ? ' engine=llm' : ' engine=cli') +
+      (cfg.engine === 'llm' ? ' model=' + (cfg.model ?? 'auto') + ' via ' + (cfg.provider ?? 'default') : '') +
+      ' started=' + scan.at + ' report=' + reportDir
+    );
+
     if (cfg.engine === 'cli') {
       await runScanCli(info, scan, state, reportDir, { timeoutMs, signal });
     } else {
@@ -728,6 +735,22 @@ export function apply(ctx, config = {}) {
           }
         }
       }
+      // Live progress feedback (console): the LLM stream can run for many
+      // minutes with zero output; log elapsed time and accumulated chars so
+      // an operator watching `dsh web` sees the scan is alive and moving.
+      const progressStarted = Date.now();
+      let progressLast = 0;
+      const progressTimer = setInterval(() => {
+        const now = Date.now();
+        if (now - progressLast < 15000) return;
+        progressLast = now;
+        const elapsed = Math.round((now - progressStarted) / 1000);
+        console.log(
+          '[dsh-security-gate] scan ' + info.key + ' in progress: ' + elapsed + 's, ' +
+          'report ' + report.length + ' chars, reasoning ' + reasoning.length + ' chars, ' +
+          'provider=' + provider + ' model=' + model
+        );
+      }, 5000);
       // Effort-support cache: once a provider/model reports
       // UNSUPPORTED_REASONING_EFFORT, later scans skip the wasted first call
       // that sends a rejected `reasoningEffort` and go straight to no-effort.
@@ -770,6 +793,7 @@ export function apply(ctx, config = {}) {
     } finally {
       clearTimeout(abortTimer);
       clearInterval(idleTimer);
+      clearInterval(progressTimer);
     }
     try {
       writeFileSync(join(reportDir, 'report.md'), sanitizeReportHtml(report) + REPORT_FOOTER, { mode: 0o600 });
@@ -951,6 +975,25 @@ export function apply(ctx, config = {}) {
       // runScan's loadState sees them and its saveState cannot be clobbered.
       saveState(state);
       writeSummary(state);
+      // Boot-time console summary: an operator starting `dsh web` should see
+      // what the gate discovered and what it is about to audit.
+      const summaryLines = [
+        '[dsh-security-gate] discovered ' + found.size + ' plugin(s)' +
+          (toQueue.length > 0 ? ', queueing ' + toQueue.length + ' for audit' : ', nothing to audit') +
+          (rescanFailed ? ' (boot pass: retrying previously failed scans)' : ''),
+      ];
+      for (const info of toQueue.slice(0, 10)) {
+        const entry = state.plugins[info.key];
+        const why = !entry ? 'new'
+          : entry.root !== info.root ? 'root changed'
+          : (info.version !== undefined && entry.version !== info.version) ? 'version changed'
+          : lastScanReportEmpty(entry) ? 'empty report'
+          : (entry.lastScan && entry.lastScan.status === 'failed') ? 'failed (retry)'
+          : 'changed';
+        summaryLines.push('  - queue ' + info.key + ' (' + why + ')');
+      }
+      if (toQueue.length > 10) summaryLines.push('  - … and ' + (toQueue.length - 10) + ' more');
+      console.log(summaryLines.join('\n'));
       for (const info of toQueue) queueScan(info);
     } catch (error) {
       console.error('[dsh-security-gate] tick failed: ' + String(error));
@@ -1398,5 +1441,10 @@ export function apply(ctx, config = {}) {
     setTimeout(safeTick, 3000);
   }
 
-  console.log('[dsh-security-gate] active: autoScan=' + cfg.autoScan + ' intervalMs=' + cfg.intervalMs + ' stateDir=' + cfg.stateDir);
+  console.log(
+    '[dsh-security-gate] active: autoScan=' + cfg.autoScan + ' intervalMs=' + cfg.intervalMs +
+    ' stateDir=' + cfg.stateDir + ' engine=' + cfg.engine +
+    (cfg.engine === 'llm' ? ' model=' + (cfg.model ?? 'deployment default') + ' provider=' + (cfg.provider ?? 'deployment default') : '') +
+    ' (console progress every ~15s while a scan runs)'
+  );
 }
