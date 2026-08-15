@@ -28,13 +28,17 @@ if (-not $hasPayload) {
   # deleted afterwards: `dsh plugin add` installs the gate as a file: dependency
   # whose junction points at the source, so removing it would dangle the
   # junction and break the next `dsh` boot.
+  # No `exit` anywhere in this script: with `irm ... | iex` the body runs in the
+  # caller's PowerShell session, and `exit` would terminate it and close the
+  # window. `return` (and terminating `Write-Error` under ErrorActionPreference
+  # Stop) end only this script body.
   if ($repoUrl -match '<owner>') {
     Write-Error 'install.ps1 must be run from the project checkout, or set DSH_CODE_SECURITY_REPO_URL to the published repository URL.'
-    exit 1
+    return
   }
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     Write-Error 'git is required for the piped install — install git (https://git-scm.com) and retry.'
-    exit 1
+    return
   }
   $cacheDir = Join-Path $dsh 'cache\dsh-code-security'
   if (Test-Path $cacheDir) { Remove-Item $cacheDir -Recurse -Force }
@@ -43,10 +47,11 @@ if (-not $hasPayload) {
   git clone --depth 1 "$repoUrl" "$cacheDir"
   if ($LASTEXITCODE -ne 0) {
     Write-Error "git clone failed (exit $LASTEXITCODE) — check the repository URL and network access."
-    exit $LASTEXITCODE
+    return
   }
   & (Join-Path $cacheDir 'install.ps1') @args
-  exit $LASTEXITCODE
+  $global:LASTEXITCODE = $LASTEXITCODE
+  return
 }
 
 # ── 1. agent preset ─────────────────────────────────────────────────────────

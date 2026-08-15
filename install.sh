@@ -29,6 +29,7 @@ fi
 
 dsh="${DSH_HOME:-$HOME/.dsh}"
 
+main() {
 if [ "$has_payload" -eq 0 ]; then
   # Piped mode (or a bare copy of this script): fetch the project first, then
   # re-run the installer from the clone so the preset payload and gate code are
@@ -36,15 +37,18 @@ if [ "$has_payload" -eq 0 ]; then
   # deleted afterwards: `dsh plugin add` installs the gate as a file: dependency
   # whose junction/symlink points at the source, so removing it would dangle the
   # link and break the next `dsh` boot.
+  # No `exit` anywhere in this script: for `curl ... | bash` the piped bash is a
+  # child, and for `irm ... | iex` (PowerShell) an `exit` would terminate the
+  # caller's whole session and close the window. `return` ends only this main().
   case "$repo_url" in
     *"<owner>"*)
       echo "install.sh must run from the project checkout, or set DSH_CODE_SECURITY_REPO_URL to the published repository URL." >&2
-      exit 1
+      return 1
       ;;
   esac
   if ! command -v git >/dev/null 2>&1; then
     echo "git is required for the piped install — install git and retry." >&2
-    exit 1
+    return 1
   fi
   cache_dir="$dsh/cache/dsh-code-security"
   rm -rf "$cache_dir"
@@ -54,13 +58,13 @@ if [ "$has_payload" -eq 0 ]; then
   rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "git clone failed (exit $rc) — check the repository URL and network access." >&2
-    exit "$rc"
+    return "$rc"
   fi
   set +e
   ( cd "$cache_dir" && bash ./install.sh "$@" )
   rc=$?
   set -e
-  exit "$rc"
+  return "$rc"
 fi
 profile="${1:-web}"
 
@@ -145,3 +149,6 @@ echo '  1. Restart dsh web so the gate loads (composition changes apply at boot)
 echo '  2. New DSH session -> pick the "安全审计模式" preset (id: dsh-security) for skills + model-based audits.'
 echo "  3. The gate auto-audits newly installed plugins with the harness model (no auth); watch $dsh/dsh-security/summary.json."
 echo '  4. Optional: for OpenAI Codex Security CLI scans, run `npx @openai/codex-security login` (or set OPENAI_API_KEY).'
+}
+
+main "$@"
