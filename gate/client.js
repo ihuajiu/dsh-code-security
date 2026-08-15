@@ -155,10 +155,12 @@ window.__ModuleLoader__.load({
 				"time.locale": "zh-CN",
 			},
 		};
-		/** Pick the UI language from the platform locale snapshot. */
+		/** Pick the UI language from the platform locale snapshot. The
+		 *  LocaleSnapshot shape is { active: LocaleId, locales, revision } —
+		 *  `active` carries the current locale id (e.g. "zh-CN" / "en-US"). */
 		function uiLangFrom(localeSnapshot) {
 			try {
-				var id = String((localeSnapshot && (localeSnapshot.locale || localeSnapshot.id)) || "");
+				var id = String((localeSnapshot && localeSnapshot.active) || "");
 				if (/^zh/i.test(id)) return "zh";
 			} catch { /* fall through */ }
 			return "en";
@@ -170,7 +172,10 @@ window.__ModuleLoader__.load({
 		}
 		// Platform locale service (ctx.locale), captured at apply() time so the
 		// section component can read the current language and follow switches.
+		// `appCtx` is kept too: the section may render before the locale service
+		// mounts, so the component re-resolves it lazily via appCtx.get("locale").
 		var localeService = undefined;
+		var appCtx = undefined;
 
 		const theme = {
 			label: "var(--dsw-alias-label-primary, #1a1a1a)",
@@ -594,7 +599,10 @@ window.__ModuleLoader__.load({
 			// Report language: initializes from the platform locale (settings
 			// language) and keeps following it — the manual English/中文 toggle
 			// overrides until the platform language changes again.
-			var localeSvc = localeService;
+			// Resolve the locale service lazily at mount: the section component
+			// may render before the platform locale service is available, so
+			// fall back to apply-time capture or re-try via the stored ctx.
+			var localeSvc = localeService || (appCtx && appCtx.get ? appCtx.get("locale") : undefined);
 			var useStateLang = useState(localeSvc && localeSvc.getLocale ? uiLangFrom(localeSvc.getLocale()) : "en");
 			var lang = useStateLang[0];
 			var setLang = useStateLang[1];
@@ -911,6 +919,7 @@ window.__ModuleLoader__.load({
 		}
 
 		function apply(ctx) {
+			appCtx = ctx;
 			localeService = ctx.get ? ctx.get("locale") : undefined;
 			var labelKey = "section.label";
 			ctx.slots.inject("settings.section", () => ctx.slots.register({
@@ -918,7 +927,8 @@ window.__ModuleLoader__.load({
 				id: "dsh-security",
 				order: 25,
 				label: () => {
-					var lng = localeService && localeService.getLocale ? uiLangFrom(localeService.getLocale()) : "zh";
+					var svc = localeService || (appCtx && appCtx.get ? appCtx.get("locale") : undefined);
+					var lng = svc && svc.getLocale ? uiLangFrom(svc.getLocale()) : "zh";
 					return tr(lng, labelKey);
 				},
 			}, CodexSecuritySection));
