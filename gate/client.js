@@ -674,8 +674,8 @@ window.__ModuleLoader__.load({
 								open.text === null
 									? react.createElement("div", { style: { padding: "14px", color: theme.label3, fontSize: "12px" } }, "加载中…")
 									: react.createElement("div", null,
-										react.createElement("p", { style: { margin: "8px 14px 0", padding: "6px 10px", fontSize: "11.5px", color: theme.warn, background: theme.bgModule, borderRadius: "6px", border: "1px solid " + theme.borderL1 } },
-											"⚠️ AI 生成内容，仅供参考：报告由大模型自动生成，可能遗漏或误报漏洞；链接指向的内容未经审核，请勿盲目点击。" + (lang === "en" ? " AI-generated for reference only — may miss or over-report issues; links in the report are not vetted, click with care." : "")),
+										react.createElement("p", { style: { margin: "8px 14px 0", padding: "5px 10px", fontSize: "11.5px", color: theme.warn, background: theme.bgModule, borderRadius: "6px", border: "1px solid " + theme.borderL1 } },
+											lang === "en" ? "⚠️ AI-generated — may misreport; links not vetted." : "⚠️ AI 生成，仅供参考；链接未经审核。"),
 										lang === "zh" && !zhAvailable
 											? react.createElement("p", { style: { margin: "8px 14px 0", fontSize: "11.5px", color: theme.warn } },
 												"中文版未生成（该报告仅含英文）— 以下显示英文原文")
