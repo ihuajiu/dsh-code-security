@@ -1,17 +1,16 @@
-// openai-code-security-gate
+// dsh-security-gate
 //
 // DSH host plugin: a security gate for plugin installation.
 //
-//   - Watches plugin-install surfaces and auto-scans newly installed plugins
-//     with the @openai/codex-security CLI:
+//   - Watches plugin-install surfaces and auto-audits newly installed plugins
+//     with the harness's own model (llm engine, no external authentication):
 //       1. user agent presets under <dshHome>/.agent-presets
 //       2. profile plugin packages (package.json dependencies + bundles and
 //          top-level node_modules) under <dshHome>/profiles/*
-//   - Scans run as background processes through the host `shell` service;
-//     results, state, and a per-plugin summary are persisted under
-//     <dshHome>/codex-security/.
-//   - Registers two global model tools: `codex_security_scan_plugins` (batch
-//     scan of specified plugins) and `codex_security_scan_status`.
+//   - Results, state, and a per-plugin summary are persisted under
+//     <dshHome>/dsh-security/.
+//   - Registers two global model tools: `dsh_security_scan_plugins` (batch
+//     audit of specified plugins) and `dsh_security_scan_status`.
 //
 // Zero-dependency by design (Node builtins only) so the module loads from any
 // profile's node_modules without peer-package resolution concerns. It consumes
@@ -20,14 +19,14 @@
 //
 // Install: `dsh plugin --profile <name> add <this directory>`, then add a row
 // to the profile's cordis.patch.yml:
-//   - id: codex-security-gate
-//     name: openai-code-security-gate
+//   - id: dsh-security-gate
+//     name: dsh-security-gate
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { homedir } from 'node:os';
 
-export const name = 'openai-code-security-gate';
+export const name = 'dsh-security-gate';
 
 export function apply(ctx, config = {}) {
   const dshHome = config.dshHome ?? join(homedir(), '.dsh');
@@ -47,7 +46,7 @@ export function apply(ctx, config = {}) {
     // agent default selection (the same route this session uses).
     provider: config.provider,
     model: config.model,
-    stateDir: config.stateDir ?? join(dshHome, 'codex-security'),
+    stateDir: config.stateDir ?? join(dshHome, 'dsh-security'),
     scanTimeoutMs: config.scanTimeoutMs ?? 900000,
     maxParallel: config.maxParallel ?? 2,
     profileDirs: config.profileDirs,
@@ -100,7 +99,7 @@ export function apply(ctx, config = {}) {
     try {
       writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf8');
     } catch (error) {
-      console.error('[codex-security-gate] could not write state: ' + String(error));
+      console.error('[dsh-security-gate] could not write state: ' + String(error));
     }
   }
   function writeSummary(state) {
@@ -119,7 +118,7 @@ export function apply(ctx, config = {}) {
       }
       writeFileSync(summaryPath, JSON.stringify({ updatedAt: nowIso(), plugins }, null, 2), 'utf8');
     } catch (error) {
-      console.error('[codex-security-gate] could not write summary: ' + String(error));
+      console.error('[dsh-security-gate] could not write summary: ' + String(error));
     }
   }
 
@@ -178,7 +177,7 @@ export function apply(ctx, config = {}) {
           });
         }
       } catch (error) {
-        console.error('[codex-security-gate] agentPresets.list failed: ' + String(error));
+        console.error('[dsh-security-gate] agentPresets.list failed: ' + String(error));
       }
     }
 
@@ -200,7 +199,7 @@ export function apply(ctx, config = {}) {
             if (root) add({ key: 'package:' + bundle, kind: 'package', id: bundle, root, version: readVersion(root) });
           }
         } catch (error) {
-          console.error('[codex-security-gate] could not read ' + pkgPath + ': ' + String(error));
+          console.error('[dsh-security-gate] could not read ' + pkgPath + ': ' + String(error));
         }
       }
       const nm = join(profileDir, 'node_modules');
@@ -277,7 +276,7 @@ export function apply(ctx, config = {}) {
     }
     saveState(state);
     writeSummary(state);
-    console.log('[codex-security-gate] scan ' + info.key + ' -> ' + scan.status + (scan.reportDir ? ' @ ' + scan.reportDir : ''));
+    console.log('[dsh-security-gate] scan ' + info.key + ' -> ' + scan.status + (scan.reportDir ? ' @ ' + scan.reportDir : ''));
     return { key: info.key, status: scan.status, reportDir: scan.reportDir, note: scan.note };
   }
 
@@ -365,7 +364,7 @@ export function apply(ctx, config = {}) {
     let finishText = 'unknown';
     let usageText = '';
     const ctrl = new AbortController();
-    const abortTimer = setTimeout(() => ctrl.abort('codex-security-gate llm timeout'), cfg.llmTimeoutMs);
+    const abortTimer = setTimeout(() => ctrl.abort('dsh-security-gate llm timeout'), cfg.llmTimeoutMs);
     try {
       const callSignal = signal !== undefined && typeof AbortSignal.any === 'function'
         ? AbortSignal.any([signal, ctrl.signal])
@@ -480,7 +479,7 @@ export function apply(ctx, config = {}) {
       const job = pending.shift();
       running += 1;
       job()
-        .catch((error) => console.error('[codex-security-gate] scan job failed: ' + String(error)))
+        .catch((error) => console.error('[dsh-security-gate] scan job failed: ' + String(error)))
         .finally(() => {
           running -= 1;
           pump();
@@ -552,7 +551,7 @@ export function apply(ctx, config = {}) {
       writeSummary(state);
       for (const info of toQueue) queueScan(info);
     } catch (error) {
-      console.error('[codex-security-gate] tick failed: ' + String(error));
+      console.error('[dsh-security-gate] tick failed: ' + String(error));
     } finally {
       ticking = false;
     }
@@ -619,7 +618,7 @@ export function apply(ctx, config = {}) {
       render: (_args, value) => [{ type: 'text', text: value }],
     };
     tools.register({
-      name: 'codex_security_scan_plugins',
+      name: 'dsh_security_scan_plugins',
       description:
         'Batch-audit one or more plugins with the harness\'s own model (no external authentication) and return per-plugin results. Identifiers may be an agent-preset id (e.g. codex-security), a profile plugin package name (e.g. dsh-plugin-finder), or an absolute directory path. Each audit harvests the plugin source and produces a markdown report under the gate state dir (summary in summary.json).',
       parameters: {
@@ -656,7 +655,7 @@ export function apply(ctx, config = {}) {
       },
     });
     tools.register({
-      name: 'codex_security_scan_status',
+      name: 'dsh_security_scan_status',
       description:
         'Show the current scan status of every plugin known to the codex-security gate (presets and profile packages) from summary.json, plus the state dir location.',
       parameters: {
@@ -743,12 +742,12 @@ export function apply(ctx, config = {}) {
     try {
       webServer.register({
         kind: 'exact',
-        path: '/codex-security/status.json',
+        path: '/dsh-security/status.json',
         handler: async (_req, res) => sendJson(res, await summaryPayload()),
       });
       webServer.register({
         kind: 'exact',
-        path: '/codex-security/report',
+        path: '/dsh-security/report',
         handler: (req, res) => {
           const parsed = new URL(req.url ?? '/', 'http://localhost');
           const id = parsed.searchParams.get('id') ?? '';
@@ -780,7 +779,7 @@ export function apply(ctx, config = {}) {
       });
       webServer.register({
         kind: 'exact',
-        path: '/codex-security/scan',
+        path: '/dsh-security/scan',
         handler: async (req, res) => {
           let body = '';
           for await (const chunk of req) body += chunk;
@@ -801,10 +800,10 @@ export function apply(ctx, config = {}) {
         },
       });
       routesRegistered = true;
-      console.log('[codex-security-gate] web routes registered');
+      console.log('[dsh-security-gate] web routes registered');
       return true;
     } catch (error) {
-      console.error('[codex-security-gate] route registration failed: ' + String(error));
+      console.error('[dsh-security-gate] route registration failed: ' + String(error));
       return false;
     }
   }
@@ -817,11 +816,11 @@ export function apply(ctx, config = {}) {
     // Watchdog: if a previous tick is still marked running beyond the budget,
     // force-reset the flag so the poll loop can never wedge permanently.
     if (ticking && tickStartedAt > 0 && Date.now() - tickStartedAt > cfg.tickWatchdogMs) {
-      console.error('[codex-security-gate] tick watchdog fired — resetting stuck tick');
+      console.error('[dsh-security-gate] tick watchdog fired — resetting stuck tick');
       ticking = false;
     }
     if (!ticking) tickStartedAt = Date.now();
-    tick().catch((error) => console.error('[codex-security-gate] tick failed: ' + String(error)));
+    tick().catch((error) => console.error('[dsh-security-gate] tick failed: ' + String(error)));
   };
   if (timer !== undefined && cfg.autoScan) {
     timer.timeout(safeTick, 3000);
@@ -831,5 +830,5 @@ export function apply(ctx, config = {}) {
     setTimeout(safeTick, 3000);
   }
 
-  console.log('[codex-security-gate] active: autoScan=' + cfg.autoScan + ' intervalMs=' + cfg.intervalMs + ' stateDir=' + cfg.stateDir);
+  console.log('[dsh-security-gate] active: autoScan=' + cfg.autoScan + ' intervalMs=' + cfg.intervalMs + ' stateDir=' + cfg.stateDir);
 }

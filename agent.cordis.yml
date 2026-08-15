@@ -1,5 +1,6 @@
-# The `codex-security` agent preset: the standard coding agent, plus the
-# OpenAI Codex Security skills and CLI wrapper tools.
+# The `dsh-security` agent preset: the standard coding agent, plus the
+# OpenAI Codex Security skills and CLI wrapper tools (renamed for the DSH
+# ecosystem; not affiliated with OpenAI).
 #
 # Derived from the shipped `standard` preset (the full coding agent, mounted
 # once per process) with three additions:
@@ -10,9 +11,9 @@
 #      (the DSH adapter entry skill). Relative paths resolve from the preset's
 #      own directory, so the payload travels with the preset.
 #   2. `tool-skill` exposes the skill catalog/loader to the agent.
-#   3. A local plugin row (`./plugins/codex-security`) registers the
-#      `codex_security_scan`, `codex_security_findings`,
-#      `codex_security_scans_compare`, and `codex_security_cli` tools, which
+#   3. A local plugin row (`./plugins/dsh-security/index.js`) registers the
+#      `dsh_security_scan`, `dsh_security_findings`,
+#      `dsh_security_scans_compare`, and `dsh_security_cli` tools, which
 #      execute the @openai/codex-security CLI through the host `shell` service.
 #
 # A service row here MUST sit inside a group carrying an `isolate` realm.
@@ -212,16 +213,15 @@
     fetch: false
     searchTimeoutMs: 60000
 
-# ── codex-security ──────────────────────────────────────────────────────────
+# ── dsh-security ────────────────────────────────────────────────────────────
 
-# The local tool plugin registers the `codex_security_*` tools. Relative rows
+# The local tool plugin registers the `dsh_security_*` tools. Relative rows
 # resolve from the preset's own directory, so `plugins/` travels with the
 # preset; the row must name the module FILE (the preset loader imports via
-# ESM, which does not resolve a bare directory). Its bare-specifier imports
-# (@deepseek-ai/dsh-tools, schemastery) resolve against the host composition.
-# It publishes no service, so no realm.
-- id: codex-security
-  name: ./plugins/codex-security/index.js
+# ESM, which does not resolve a bare directory). It publishes no service,
+# so no realm.
+- id: dsh-security-tools
+  name: ./plugins/dsh-security/index.js
   config:
     cliCommand: npx --yes @openai/codex-security
     scanTimeoutMs: 3600000

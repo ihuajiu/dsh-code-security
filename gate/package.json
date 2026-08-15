@@ -1,5 +1,5 @@
 {
-  "name": "openai-code-security-gate",
+  "name": "dsh-security-gate",
   "version": "0.1.0",
   "private": true,
   "type": "module",

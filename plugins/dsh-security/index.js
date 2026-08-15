@@ -1,4 +1,4 @@
-// DSH agent-preset plugin wrapping the @openai/codex-security CLI.
+﻿// DSH agent-preset plugin wrapping the @openai/codex-security CLI.
 //
 // Loaded from an agent preset composition as a relative row:
 //   - id: codex-security
@@ -143,7 +143,7 @@ export function apply(ctx, config = {}) {
 
   const register = (definition) => ctx.effect(() => tools.register(definition));
 
-  // ── codex_security_resources ─────────────────────────────────────────────
+  // ── dsh_security_resources ─────────────────────────────────────────────
   // Absolute paths of the bundled Codex Security payload (skills, references,
   // schemas, examples, scripts) that travel with this preset, so the agent can
   // read the reference documents and run the auxiliary Python scripts that the
@@ -151,7 +151,7 @@ export function apply(ctx, config = {}) {
   // `<preset>/plugins/codex-security/index.js`, so the payload is two levels up.
   const bundledDir = fileURLToPath(new URL('../../bundled/', import.meta.url));
   register({
-    name: 'codex_security_resources',
+    name: 'dsh_security_resources',
     description:
       'Return the absolute paths of the bundled Codex Security payload shipped with this preset (the upstream workflow skills, references, schemas, examples, and Python scripts). Use it to read a workflow skill\'s referenced documents or to run one of the bundled Python scripts (e.g. resolve_security_md.py) with the python tool.',
     parameters: {
@@ -187,11 +187,11 @@ export function apply(ctx, config = {}) {
     },
   });
 
-  // ── codex_security_scan ──────────────────────────────────────────────────
+  // ── dsh_security_scan ──────────────────────────────────────────────────
   register({
-    name: 'codex_security_scan',
+    name: 'dsh_security_scan',
     description:
-      'Run an OpenAI Codex Security scan on a repository, directory, or scoped path and return the CLI output (progress on stderr, scan results/manifest on stdout). Requires Codex Security authentication: OPENAI_API_KEY/CODEX_API_KEY env, or a prior `codex_security_cli` `login`. Long scans should be run in the background (`run_in_background: true`) and read with the job tools.',
+      'Run an OpenAI Codex Security scan on a repository, directory, or scoped path and return the CLI output (progress on stderr, scan results/manifest on stdout). Requires Codex Security authentication: OPENAI_API_KEY/CODEX_API_KEY env, or a prior `dsh_security_cli` `login`. Long scans should be run in the background (`run_in_background: true`) and read with the job tools.',
     parameters: {
       type: 'object',
       properties: {
@@ -246,9 +246,9 @@ export function apply(ctx, config = {}) {
     },
   });
 
-  // ── codex_security_findings ──────────────────────────────────────────────
+  // ── dsh_security_findings ──────────────────────────────────────────────
   register({
-    name: 'codex_security_findings',
+    name: 'dsh_security_findings',
     description:
       'List security findings for a repository from saved Codex Security scans. Equivalent to `codex-security findings list [repository]`.',
     parameters: {
@@ -271,9 +271,9 @@ export function apply(ctx, config = {}) {
     },
   });
 
-  // ── codex_security_scans_compare ─────────────────────────────────────────
+  // ── dsh_security_scans_compare ─────────────────────────────────────────
   register({
-    name: 'codex_security_scans_compare',
+    name: 'dsh_security_scans_compare',
     description:
       'Compare two saved Codex Security scans by scan id, matching findings by root cause and reporting new, persisting, reopened, resolved, or unknown findings. Equivalent to `codex-security scans compare BEFORE AFTER`.',
     parameters: {
@@ -297,9 +297,9 @@ export function apply(ctx, config = {}) {
     },
   });
 
-  // ── codex_security_cli ───────────────────────────────────────────────────
+  // ── dsh_security_cli ───────────────────────────────────────────────────
   register({
-    name: 'codex_security_cli',
+    name: 'dsh_security_cli',
     description:
       'Run any other @openai/codex-security CLI command (e.g. `login`, `scans list`, `scans logs SCAN_ID`, `findings list`, `scans compare`, `--help`). Provide the subcommand and its arguments exactly as the CLI expects, without the leading `codex-security` binary name.',
     parameters: {

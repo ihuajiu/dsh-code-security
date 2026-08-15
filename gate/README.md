@@ -1,27 +1,28 @@
-# openai-code-security-gate
+# dsh-security-gate
 
 DSH 宿主门禁插件：**新插件安装时自动用本会话的大模型审计（免认证），并支持指定插件批量扫描。**
+（非 OpenAI 官方产品；`Codex`/`Codex Security` 为 OpenAI 商标，本插件已改用中性命名。）
 
 - 监控两类"插件安装"表面（轮询，默认 60s + 启动时立即一次）：
   1. `~/.dsh/.agent-presets/` 下新增/变更的 **agent preset**（用户预设法）
   2. `~/.dsh/profiles/*/` 下各 profile 的 **package.json 依赖、bundle 列表、node_modules 顶层包**（`dsh plugin` 装的插件）
-- 新插件出现 → 采集插件源码（有界：跳过 node_modules/.git/二进制/超限文件）→ 用宿主
+- 新插件出现 → 采集插件源码（有界：跳过 node_modules/.git/bundled/二进制/超限文件）→ 用宿主
   `llm` 服务（与会话同一 provider/model，零新增认证）生成安全审计报告，写入
   `reports/<key>-<ts>/report.md`；自动跳过已审计且未变化的插件，版本/路径变化会重扫。
 - 可选 CLI 引擎（`engine: 'cli'`）：执行 `npx --yes @openai/codex-security scan <根目录>`，
   需 OpenAI 侧认证。
-- 状态与报告持久化在 `<DSH_HOME>/codex-security/`：
+- 状态与报告持久化在 `<DSH_HOME>/dsh-security/`：
   - `state.json` — 每个插件的审计历史
   - `summary.json` — 每插件最新状态（供人工/UI 查看）
   - `reports/<key>-<ts>/` — `report.md`（模型审计报告）+ `runner.log`
 - 注册两个全局模型工具：
-  - `codex_security_scan_plugins` — 批量审计（标识：预设 id / 包名 / 绝对路径，可 `force` 重扫）
-  - `codex_security_scan_status` — 查看所有已知插件的审计状态
+  - `dsh_security_scan_plugins` — 批量审计（标识：预设 id / 包名 / 绝对路径，可 `force` 重扫）
+  - `dsh_security_scan_status` — 查看所有已知插件的审计状态
 - **GUI 面板**：设置页新增「安全审计」分区（`settings.section`），展示每插件状态/最近
   审计/备注，支持打开报告与「重新审计」。数据经门禁注册的 HTTP 端点提供：
-  - `GET /codex-security/status.json` — 每插件最新状态
-  - `GET /codex-security/report?id=<报告目录>` — 报告 markdown（仅允许已记录的报告目录）
-  - `POST /codex-security/scan` — 触发指定插件审计 `{ "plugins": ["preset:x", ...] }`
+  - `GET /dsh-security/status.json` — 每插件最新状态（状态为空时实时发现兜底）
+  - `GET /dsh-security/report?id=<报告目录>` — 报告 markdown（仅允许已记录的报告目录）
+  - `POST /dsh-security/scan` — 触发指定插件审计 `{ "plugins": ["preset:x", ...] }`
 
 零依赖（仅 Node 内置模块 + 一个手写 client bundle）；消费宿主服务时全部
 `ctx.get()` 防御式访问，`apply()` 不抛错。
@@ -43,8 +44,8 @@ dsh plugin --profile web add <本目录>
 
 ```yaml
 - insert:
-    - id: codex-security-gate
-      name: openai-code-security-gate
+    - id: dsh-security-gate
+      name: dsh-security-gate
       config:
         scanTimeoutMs: 900000
 ```

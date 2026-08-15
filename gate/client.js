@@ -1,4 +1,4 @@
-// openai-code-security-gate — browser client half.
+// dsh-security-gate — browser client half.
 //
 // Registered as a web `dsh.client` package (`exports["./client"]`) and loaded
 // through the shell's module table. Mounts a "安全审计" settings section that
@@ -9,7 +9,7 @@
 // bundler, no JSX. Styling is theme-aware via DSH CSS variables with
 // fallbacks so light and dark modes both look right.
 window.__ModuleLoader__.load({
-	id: "openai-code-security-gate",
+	id: "dsh-security-gate",
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
@@ -19,9 +19,9 @@ window.__ModuleLoader__.load({
 
 		const inject = ["slots"];
 
-		const STATUS_URL = "/codex-security/status.json";
-		const REPORT_URL = "/codex-security/report?id=";
-		const SCAN_URL = "/codex-security/scan";
+		const STATUS_URL = "/dsh-security/status.json";
+		const REPORT_URL = "/dsh-security/report?id=";
+		const SCAN_URL = "/dsh-security/scan";
 
 		const theme = {
 			label: "var(--dsw-alias-label-primary, #1a1a1a)",
@@ -392,7 +392,7 @@ window.__ModuleLoader__.load({
 				react.createElement("div", { style: styles.head },
 					react.createElement("div", null,
 						react.createElement("h2", { style: styles.title }, "🛡️ 安全审计",
-							react.createElement("span", { style: { fontSize: "12px", color: theme.label3, fontWeight: 400 } }, "codex-security")),
+							react.createElement("span", { style: { fontSize: "12px", color: theme.label3, fontWeight: 400 } }, "dsh-security")),
 						react.createElement("p", { style: styles.subtitle },
 							"新插件安装后自动用本会话模型审计；已审计且未变化的插件不会重复审计。")),
 					react.createElement("div", { style: styles.spacer }),
@@ -415,7 +415,7 @@ window.__ModuleLoader__.load({
 		function apply(ctx) {
 			ctx.slots.inject("settings.section", () => ctx.slots.register({
 				name: "settings.section",
-				id: "codex-security",
+				id: "dsh-security",
 				order: 25,
 				label: () => "安全审计",
 			}, CodexSecuritySection));
