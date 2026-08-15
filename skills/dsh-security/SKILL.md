@@ -56,7 +56,7 @@ Common CLI flows (optional):
 - `dsh_security_scan { target: <path>, mode: "deep", workers: 2, max_time_hours: 1.5, run_in_background: true }` — foreground runs are capped at 5 minutes; anything longer MUST go to the background with `run_in_background: true`. Poll with the job tools and read the result when done.
 - `dsh_security_findings { repository: <path> }` — open findings across saved scans.
 - `dsh_security_scans_compare { before_scan_id, after_scan_id }` — compare two scans.
-- `dsh_security_cli { command: "scans list" }` — allowlisted CLI commands only (`login`, `logout`, `info`, `scans ...`, `findings ...`, `export ...`, `--help`); scan verbs are rejected — use `dsh_security_scan`.
+- `dsh_security_cli { command: "scans list" }` — allowlisted CLI commands only (`logout`, `info`, `scans ...`, `findings ...`, `--help`); `login`/`export` are NOT allowlisted by default, and scan verbs are rejected — use `dsh_security_scan`.
 
 Scan results are written to the Codex Security scans directory (or
 `output_dir`); the CLI prints progress to stderr and JSON results/manifest to

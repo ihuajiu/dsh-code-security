@@ -121,7 +121,7 @@ dsh plugin --profile web add <项目路径>\gate
 | `dsh_security_scan` | 运行 `scan`（standard/deep、模型/提供商/effort/workers、后台运行；前台默认 5 分钟上限） |
 | `dsh_security_findings` | `findings list [repository]` |
 | `dsh_security_scans_compare` | `scans compare BEFORE AFTER` |
-| `dsh_security_cli` | 其它 CLI 子命令透传（白名单：`login`、`logout`、`info`、`scans …`、`findings …`、`export …`、`--help`） |
+| `dsh_security_cli` | 其它 CLI 子命令透传（白名单：`logout`、`info`、`scans …`、`findings …`、`--help` 等；`login`/`export` 默认排除） |
 | `dsh_security_resources` | 返回随预设分发的 bundled 载荷绝对路径（技能、references、schemas、scripts）+ 载荷完整性校验结果 |
 
 ### 安全加固（工具层）
@@ -283,6 +283,10 @@ manifest 防御清理）、删除 `dsh-security` 预设、删除 `<DSH_HOME>/dsh
   让模型按技能用自身工具做完整审计（支持子代理并行、逐文件验证）。
 - CLI 引擎在 Windows 宿主上需要 `sandboxMode: danger-full-access`（`workspace-write`
   沙箱的 ACL 临时根与 home workspace 重叠不可用）。
+- 路径收敛为"检查时刻"快照（TOCTOU）：`output_dir` 由插件在调用前**预创建并复检**
+  收敛后再交给 CLI，已消除"缺失中间组件被替换为符号链接"的窗口；残余竞态（已创建的
+  目录在检查后被替换为符号链接、或在后台任务延迟启动期间被替换）仍被记录为已接受限制。
+  扫描目标（target）同理为检查时刻快照，建议只扫描工作目录内的内容。
 
 ---
 

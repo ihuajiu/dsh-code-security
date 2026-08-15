@@ -155,6 +155,14 @@ function sanitizeReportHtml(text) {
   return String(text).replace(DANGEROUS, (m) => m.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
 }
 
+/**
+ * Per-process cache of provider/model → whether they accept a reasoningEffort
+ * value. Populated the first time a provider rejects the configured effort
+ * (UNSUPPORTED_REASONING_EFFORT); later audits on that route skip the wasted
+ * rejected call.
+ */
+const effortSupport = new Map();
+
 export function apply(ctx, config = {}) {
   const dshHome = config.dshHome ?? join(homedir(), '.dsh');
   const cfg = {
@@ -191,7 +199,10 @@ export function apply(ctx, config = {}) {
     scanRateLimit: config.scanRateLimit ?? 10,
     scanRateWindowMs: config.scanRateWindowMs ?? 10000,
     maxOutputTokens: config.maxOutputTokens ?? 32000,
-    llmTimeoutMs: config.llmTimeoutMs ?? 240000,
+    // llm call timeout. Reasoning-heavy providers (or the no-effort retry
+    // path) can reason a long time on a big audit — 240s was too tight and
+    // aborted mid-reasoning; 10 minutes gives headroom.
+    llmTimeoutMs: config.llmTimeoutMs ?? 600000,
     tickWatchdogMs: config.tickWatchdogMs ?? 180000,
     // A scan left in 'running' state longer than this (e.g. the process died
     // mid-scan) is healed to 'failed' so the UI status can update and the
@@ -690,8 +701,17 @@ export function apply(ctx, config = {}) {
           }
         }
       }
-      await callLlm(cfg.reasoningEffort);
-      if (report.length === 0 && /UNSUPPORTED_REASONING_EFFORT/.test(finishText) && cfg.reasoningEffort !== undefined) {
+      // Effort-support cache: once a provider/model reports
+      // UNSUPPORTED_REASONING_EFFORT, later scans skip the wasted first call
+      // that sends a rejected `reasoningEffort` and go straight to no-effort.
+      const effortKey = provider + '/' + model;
+      let effort = cfg.reasoningEffort;
+      if (effort !== undefined && effortSupport.get(effortKey) === false) {
+        effort = undefined;
+      }
+      await callLlm(effort);
+      if (report.length === 0 && /UNSUPPORTED_REASONING_EFFORT/.test(finishText) && effort !== undefined) {
+        effortSupport.set(effortKey, false);
         console.warn(
           '[dsh-security-gate] reasoning effort ' + JSON.stringify(cfg.reasoningEffort) +
             ' unsupported by ' + provider + '/' + model + ' — retrying without it'

@@ -15,7 +15,9 @@
 //      shell word: single-quoted with shell-aware escaping, so backticks,
 //      `$(...)`, `$VAR`, quotes, and globs are inert on both the bash
 //      (`bash -c`) and PowerShell (`pwsh -Command`) executors. No argument is
-//      ever spliced into the command string unquoted.
+//      ever spliced into the command string unquoted. Enum-like arguments
+//      (`mode`, `effort`, `auth`) are additionally runtime-whitelisted before
+//      quoting — safety never depends on host-side JSON-Schema enforcement.
 //   2. Path confinement. `dsh_security_scan` / `dsh_security_findings` path
 //      arguments (target, prompt files, knowledge base, output dir) must
 //      resolve inside the run's working directory unless the plugin config
@@ -24,6 +26,8 @@
 //      `workdir` argument itself is confined the same way: it must resolve
 //      inside the SESSION working directory, so a prompt-injected `workdir`
 //      cannot launder an out-of-scope target past the containment check.
+//      `dsh_security_cli` pass-through tokens that name local paths (absolute,
+//      `~`-prefixed, or existing relative files) get the same containment.
 //   3. Subcommand whitelist. `dsh_security_cli` accepts only a fixed set of
 //      top-level subcommands (`cliAllowedVerbs`). `scan`/`bulk-scan` are
 //      intentionally NOT in it: scans must go through `dsh_security_scan`,
@@ -43,7 +47,7 @@
 // ToolDefinitions with raw JSON-Schema parameters.
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve as resolvePath, sep as pathSep, dirname, basename } from 'node:path';
 
@@ -273,6 +277,17 @@ function toBoundedNumber(value, { min, max, name }) {
 const PROVIDERS = ['openai', 'openrouter', 'fireworks', 'amazon-bedrock'];
 
 /**
+ * Enum-like scan arguments the CLI accepts. Whitelisted at runtime (not just
+ * via the tool's JSON-Schema enum) because the model is untrusted input and a
+ * host tool-call pipeline may not hard-reject out-of-enum values (audit
+ * finding 1). Together with quoteArg these values can never reach the shell
+ * as syntax.
+ */
+const SCAN_MODES = ['standard', 'deep'];
+const SCAN_EFFORTS = ['low', 'medium', 'high'];
+const AUTH_SELECTIONS = ['api-key'];
+
+/**
  * Resolve a scan/findings path argument against the run's working directory
  * and enforce containment on CANONICAL paths: the resolved path must stay
  * inside the canonical working directory unless `allowOutside` is set. Remote
@@ -379,18 +394,21 @@ export function apply(ctx, config = {}) {
   // Trusted, administrator-set CLI prefix (split once; not model input).
   // Version-pinned (F4): npx --yes fetches the latest publish unless the
   // package name carries an exact version. Bump deliberately and re-test.
-  // The prefix is admin config but is still validated: shell metacharacters
-  // (incl. backslash, newline, tabs) are rejected and the pinned default is
-  // used instead, so a misconfigured cliCommand cannot become an arbitrary
-  // command (gate finding 4).
+  // The prefix is admin config but is still validated: only a strict set of
+  // command characters is accepted (letters/digits, `@`, `.`, `-`, `/`, space),
+  // which excludes shell metacharacters AND glob characters (`*?[]{}`),
+  // `~`, `#`, `!`, backslash, and all whitespace beyond plain spaces — so a
+  // misconfigured cliCommand cannot become an arbitrary command or undergo
+  // glob expansion (gate finding 4). Anything else falls back to the pinned
+  // default.
   const configuredCliCommand = config.cliCommand ?? 'npx --yes @openai/codex-security@0.1.12';
   const cliCommand =
-    typeof configuredCliCommand === 'string' && !/[;&|`$<>()%^\\\r\n\t]/.test(configuredCliCommand)
+    typeof configuredCliCommand === 'string' && /^[\w@.\-/ ]+$/.test(configuredCliCommand)
       ? configuredCliCommand
       : (() => {
           if (ctx.logger) {
             ctx.logger.warn(
-              'codex-security: cliCommand contains shell metacharacters — refusing it and falling back to the pinned default'
+              'codex-security: cliCommand contains invalid characters — refusing it and falling back to the pinned default'
             );
           }
           return 'npx --yes @openai/codex-security@0.1.12';
@@ -641,12 +659,32 @@ export function apply(ctx, config = {}) {
       const maxTimeHours = toBoundedNumber(args.max_time_hours, { min: 0.01, max: 96, name: 'max_time_hours' });
       const stopAfterNoNew = toBoundedInt(args.stop_after_no_new, { min: 1, max: 1000, name: 'stop_after_no_new' });
       const maxDiscoveryRuns = toBoundedInt(args.max_discovery_runs, { min: 1, max: 1000, name: 'max_discovery_runs' });
+      // Runtime whitelist for enum-like arguments (audit finding 1): the JSON
+      // schema only constrains enums, and the model is untrusted input — so
+      // whitelist mode/effort/auth the same way provider is, and quote every
+      // value before it reaches the shell. Never rely on host-side schema
+      // enforcement.
+      if (args.mode !== undefined && !SCAN_MODES.includes(args.mode)) {
+        throw new Error(
+          `dsh_security: mode ${JSON.stringify(args.mode)} is not supported (allowed: ${SCAN_MODES.join(', ')})`
+        );
+      }
+      if (args.effort !== undefined && !SCAN_EFFORTS.includes(args.effort)) {
+        throw new Error(
+          `dsh_security: effort ${JSON.stringify(args.effort)} is not supported (allowed: ${SCAN_EFFORTS.join(', ')})`
+        );
+      }
+      if (args.auth !== undefined && !AUTH_SELECTIONS.includes(args.auth)) {
+        throw new Error(
+          `dsh_security: auth ${JSON.stringify(args.auth)} is not supported (allowed: ${AUTH_SELECTIONS.join(', ')})`
+        );
+      }
       const parts = [...cliPrefix, 'scan'];
       parts.push(quoteArg(resolveTarget(args.target, workdir, allowTargetsOutsideWorkdir), shell));
-      if (args.mode) parts.push('--mode', args.mode);
+      if (args.mode) parts.push('--mode', quoteArg(args.mode, shell));
       if (args.model) parts.push('--model', quoteArg(args.model, shell));
       if (args.provider) parts.push('--provider', quoteArg(args.provider, shell));
-      if (args.effort) parts.push('--effort', args.effort);
+      if (args.effort) parts.push('--effort', quoteArg(args.effort, shell));
       if (workers !== undefined) parts.push('--workers', String(workers));
       if (subagents !== undefined) parts.push('--subagents', String(subagents));
       if (maxTimeHours !== undefined) parts.push('--max-time-hours', String(maxTimeHours));
@@ -657,8 +695,36 @@ export function apply(ctx, config = {}) {
       for (const kb of args.knowledge_base ?? []) {
         parts.push('--knowledge-base', quoteArg(resolveTarget(kb, workdir, allowTargetsOutsideWorkdir), shell));
       }
-      if (args.auth) parts.push('--auth', args.auth);
-      if (args.output_dir) parts.push('--output-dir', quoteArg(resolveTarget(args.output_dir, workdir, allowTargetsOutsideWorkdir), shell));
+      if (args.auth) parts.push('--auth', quoteArg(args.auth, shell));
+      if (args.output_dir) {
+        // Close the TOCTOU window (audit finding 3): containment was checked
+        // on a canonicalized path whose missing suffix components might not
+        // exist yet; a symlink planted at a missing intermediate component
+        // after the check could redirect the CLI's writes outside the working
+        // directory. Pre-create the output directory NOW, re-canonicalize the
+        // created path, and re-check containment on the canonical result
+        // before the CLI ever runs. The residual race (replacing the created
+        // dir with a symlink before the CLI writes) is documented in
+        // README.md as an accepted limitation.
+        const resolvedOut = resolveTarget(args.output_dir, workdir, allowTargetsOutsideWorkdir);
+        try {
+          mkdirSync(resolvedOut, { recursive: true });
+        } catch (e) {
+          throw new Error(
+            `dsh_security: could not create output_dir ${JSON.stringify(args.output_dir)}: ${e.message}`
+          );
+        }
+        const canonicalOut = canonicalizePath(resolvedOut);
+        const outRoot = canonicalizePath(resolvePath(workdir || (typeof process !== 'undefined' ? process.cwd() : '.')));
+        const outKey = typeof process !== 'undefined' && process.platform === 'win32' ? canonicalOut.toLowerCase() : canonicalOut;
+        const outRootKey = typeof process !== 'undefined' && process.platform === 'win32' ? outRoot.toLowerCase() : outRoot;
+        if (!allowTargetsOutsideWorkdir && outKey !== outRootKey && !outKey.startsWith(outRootKey + pathSep)) {
+          throw new Error(
+            `dsh_security: output_dir ${JSON.stringify(args.output_dir)} resolves outside the working directory (${outRoot}) after creation`
+          );
+        }
+        parts.push('--output-dir', quoteArg(canonicalOut, shell));
+      }
       if (args.verbose) parts.push('--verbose');
       const result = await runCli(exec, parts, {
         // Bound the model-supplied timeout (gate finding 3): reject
@@ -745,7 +811,7 @@ export function apply(ctx, config = {}) {
   register({
     name: 'dsh_security_cli',
     description:
-      'Run an allowlisted @openai/codex-security CLI command (e.g. `logout`, `info`, `scans list`, `scans logs SCAN_ID`, `findings list`, `scans compare`, `export ...`, `--help`). `login` is NOT allowlisted by default — authenticate with OPENAI_API_KEY/CODEX_API_KEY (or provider keys) via the environment instead. Provide the subcommand and its arguments exactly as the CLI expects, without the leading `codex-security` binary name. Only the top-level verbs in the whitelist are accepted — use the dedicated dsh_security_scan tool for scans (it applies path and timeout policy). Arguments are passed as shell literals; separate them with spaces.',
+      'Run an allowlisted @openai/codex-security CLI command (e.g. `logout`, `info`, `scans list`, `scans logs SCAN_ID`, `findings list`, `scans compare`, `--help`). `login` and `export` are NOT allowlisted by default — authenticate with OPENAI_API_KEY/CODEX_API_KEY (or provider keys) via the environment instead. Provide the subcommand and its arguments exactly as the CLI expects, without the leading `codex-security` binary name. Only the top-level verbs in the whitelist are accepted — use the dedicated dsh_security_scan tool for scans (it applies path and timeout policy). Arguments are passed as shell literals; separate them with spaces.',
     parameters: {
       type: 'object',
       properties: {
@@ -771,12 +837,40 @@ export function apply(ctx, config = {}) {
             'whitelist via the plugin config `cliAllowedVerbs`.'
         );
       }
-      const parts = [...cliPrefix, ...tokens.map((token) => quoteArg(token, shell))];
+      const workdir = resolveWorkdir(exec, args.workdir);
+      // Path containment for pass-through tokens (audit finding 2): a token
+      // that names a local path (absolute, `~`-prefixed, contains a path
+      // separator, or resolves to an existing file/dir under the workdir)
+      // must pass the same resolveTarget check as the dedicated tools, so a
+      // prompt-injected `findings list /home/user/.ssh` cannot read outside
+      // the working directory. Flags and bare identifiers (scan ids, repo
+      // names) pass through as shell literals.
+      const containToken = (token) => {
+        if (token.startsWith('-')) return quoteArg(token, shell);
+        const pathLike =
+          token.startsWith('/') ||
+          token.startsWith('\\') ||
+          token.startsWith('~') ||
+          token.includes('/') ||
+          token.includes('\\') ||
+          /^[A-Za-z]:[\\/]/.test(token) ||
+          (() => {
+            try {
+              realpathSync(resolvePath(workdir, token));
+              return true;
+            } catch {
+              return false;
+            }
+          })();
+        if (!pathLike) return quoteArg(token, shell);
+        return quoteArg(resolveTarget(token, workdir, allowTargetsOutsideWorkdir), shell);
+      };
+      const parts = [...cliPrefix, verb, ...tokens.slice(1).map(containToken)];
       const result = await runCli(exec, parts, {
         timeoutMs: args.timeout_ms === undefined
           ? 120000
           : toBoundedInt(args.timeout_ms, { min: 1000, max: 86400000, name: 'timeout_ms' }),
-        workdir: resolveWorkdir(exec, args.workdir),
+        workdir,
         background: args.run_in_background === true,
       });
       return result.background
