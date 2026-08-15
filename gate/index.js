@@ -658,32 +658,48 @@ export function apply(ctx, config = {}) {
       const callSignal = signal !== undefined && typeof AbortSignal.any === 'function'
         ? AbortSignal.any([signal, ctrl.signal])
         : ctrl.signal;
-      const chunks = llm.stream({
-        provider,
-        model,
-        system,
-        reasoningEffort: cfg.reasoningEffort,
-        // content MUST be a ContentBlock array — the adapters call message.content.filter/map
-        messages: [{ role: 'user', content: [{ type: 'text', text: user }] }],
-        maxTokens: cfg.maxOutputTokens ?? 8000,
-        signal: callSignal,
-      });
-      for await (const chunk of chunks) {
-        if (!chunk || typeof chunk !== 'object') continue;
-        if (chunk.type === 'text-delta' && typeof chunk.text === 'string') report += chunk.text;
-        else if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') reasoning += chunk.text;
-        else if (chunk.type === 'finish') {
-          const r = chunk.reason;
-          finishText = r && typeof r === 'object'
-            ? r.kind + (r.failure ? ' [' + String(r.failure.code ?? '') + '] ' + String(r.failure.message ?? '') : '')
-            : String(r);
-        } else if (chunk.type === 'usage') {
-          try {
-            usageText = JSON.stringify(chunk.usage);
-          } catch {
-            /* best-effort */
+      // Retry-capable: some providers reject a reasoningEffort value they do
+      // not support (e.g. kimi-coding/k3 rejects 'off'). Try the configured
+      // effort first; on UNSUPPORTED_REASONING_EFFORT, retry once without it.
+      async function callLlm(effort) {
+        const chunks = llm.stream({
+          provider,
+          model,
+          system,
+          ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+          // content MUST be a ContentBlock array — the adapters call message.content.filter/map
+          messages: [{ role: 'user', content: [{ type: 'text', text: user }] }],
+          maxTokens: cfg.maxOutputTokens ?? 8000,
+          signal: callSignal,
+        });
+        for await (const chunk of chunks) {
+          if (!chunk || typeof chunk !== 'object') continue;
+          if (chunk.type === 'text-delta' && typeof chunk.text === 'string') report += chunk.text;
+          else if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') reasoning += chunk.text;
+          else if (chunk.type === 'finish') {
+            const r = chunk.reason;
+            finishText = r && typeof r === 'object'
+              ? r.kind + (r.failure ? ' [' + String(r.failure.code ?? '') + '] ' + String(r.failure.message ?? '') : '')
+              : String(r);
+          } else if (chunk.type === 'usage') {
+            try {
+              usageText = JSON.stringify(chunk.usage);
+            } catch {
+              /* best-effort */
+            }
           }
         }
+      }
+      await callLlm(cfg.reasoningEffort);
+      if (report.length === 0 && /UNSUPPORTED_REASONING_EFFORT/.test(finishText) && cfg.reasoningEffort !== undefined) {
+        console.warn(
+          '[dsh-security-gate] reasoning effort ' + JSON.stringify(cfg.reasoningEffort) +
+            ' unsupported by ' + provider + '/' + model + ' — retrying without it'
+        );
+        reasoning = '';
+        finishText = 'unknown';
+        usageText = '';
+        await callLlm(undefined);
       }
       const hasContent = report.length > 0;
       if (!hasContent && reasoning.length > 0) {
