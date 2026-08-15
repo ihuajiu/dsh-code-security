@@ -291,7 +291,13 @@ export function apply(ctx, config = {}) {
     try {
       if (existsSync(tokenPath)) {
         const t = readFileSync(tokenPath, 'utf8').trim();
-        if (t.length >= 16) return t;
+        // Hex-only validation (audit finding F1): the token is later inlined
+        // into a <script> tag in the served page. JSON.stringify does NOT
+        // escape `</script>`, so a crafted non-hex token file (e.g.
+        // `</script><script>...` planted by a local process) would become
+        // executable script in the DSH web origin. Only a hex string can ever
+        // be accepted; anything else is regenerated.
+        if (t.length >= 16 && /^[a-f0-9]+$/i.test(t)) return t;
       }
     } catch {
       /* regenerate */
@@ -1113,9 +1119,15 @@ export function apply(ctx, config = {}) {
       // every filesystem use (harvest, CLI scan, clear, report serving)
       // re-canonicalizes and re-validates against the plugin root, so a
       // tampered state.json cannot redirect a read or write outside it.
-      // Path targets are gated by `allowPaths`: the model tool disables them
-      // (F1: a prompt-injected model must not pick arbitrary paths); only the
-      // token-protected HTTP endpoint keeps them.
+      // Path targets are DISABLED everywhere (audit finding F2): the panel
+      // only ever sends `preset:`/`package:` keys, so a path-scan surface on
+      // the HTTP endpoint adds capability with no consumer and widens the
+      // "harvest arbitrary files under a plugin root and ship them to the
+      // model provider" exposure. Both the model tool and the HTTP /scan
+      // endpoint call with allowPaths:false; the branch below stays as a
+      // strictly-gated, canonicalized fallback in case a future caller ever
+      // re-enables it (F1: a prompt-injected model must not pick arbitrary
+      // paths).
       if ((/^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('/')) && allowPaths) {
         const resolved = canonicalizePath(resolvePath(trimmed));
         const keyed = (p) => (typeof process !== 'undefined' && process.platform === 'win32' ? p.toLowerCase() : p);
@@ -1173,7 +1185,7 @@ export function apply(ctx, config = {}) {
     tools.register({
       name: 'dsh_security_scan_plugins',
       description:
-        'Batch-audit one or more plugins with the harness\'s own model (no external authentication) and return per-plugin results. Identifiers are an agent-preset id (e.g. codex-security) or a profile plugin package name (e.g. dsh-plugin-finder) — absolute paths are not accepted from this tool (path scans are only available through the token-protected settings panel). Each audit harvests the plugin source and produces a markdown report under the gate state dir (summary in summary.json).',
+        'Batch-audit one or more plugins with the harness\'s own model (no external authentication) and return per-plugin results. Identifiers are an agent-preset id (e.g. codex-security) or a profile plugin package name (e.g. dsh-plugin-finder) — absolute paths are not accepted (path scans are disabled; only preset:/package: keys are valid). Each audit harvests the plugin source and produces a markdown report under the gate state dir (summary in summary.json).',
       parameters: {
         type: 'object',
         properties: {
@@ -1467,7 +1479,7 @@ export function apply(ctx, config = {}) {
             sendJson(res, { ok: false, error: 'too many plugins in one request (max 50)' }, 400);
             return;
           }
-          const { targets, errors } = await resolveTargets(plugins, { allowPaths: true });
+          const { targets, errors } = await resolveTargets(plugins, { allowPaths: false });
           const started = [];
           for (const target of targets) {
             queueScan(target, { force: true });

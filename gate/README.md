@@ -16,14 +16,14 @@ DSH 宿主门禁插件：**新插件安装时自动用本会话的大模型审�
   - `summary.json` — 每插件最新状态（供人工/UI 查看）
   - `reports/<key>-<ts>/` — `report.md`（模型审计报告）+ `runner.log`
 - 注册两个全局模型工具：
-  - `dsh_security_scan_plugins` — 批量审计（标识：预设 id / 包名 / 绝对路径，可 `force` 重扫）
+  - `dsh_security_scan_plugins` — 批量审计（标识：预设 id / 包名，可 `force` 重扫）
   - `dsh_security_scan_status` — 查看所有已知插件的审计状态
 - **GUI 面板**：设置页新增「安全审计」分区（`settings.section`），展示每插件状态/最近
   审计/备注，支持打开报告、「重新审计」与**清除审计记录**（单个/全部，带确认）。
   数据经门禁注册的 HTTP 端点提供：
   - `GET /dsh-security/status.json` — 每插件最新状态（状态为空时实时发现兜底）
   - `GET /dsh-security/report?id=<报告目录>` — 报告 markdown（仅允许已记录的报告目录）
-  - `POST /dsh-security/scan` — 触发指定插件审计 `{ "plugins": ["preset:x", ...] }`
+  - `POST /dsh-security/scan` — 触发指定插件审计 `{ "plugins": ["preset:x", ...] }`（仅接受 `preset:`/`package:` 键，**不支持路径目标**）
   - `POST /dsh-security/clear` — 清除审计记录（含报告文件）：单个
     `{ "plugins": [...] }` 或全部 `{ "all": true }`
 
@@ -108,9 +108,8 @@ Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要
   （面板「审计全部」或 `dsh_security_scan_plugins`）。
 - **不把源码发给模型**：只能用 `engine: 'cli'` 走 OpenAI Codex Security 官方扫描
   （需其自身认证与网络，源码仍会交给 OpenAI 扫描管线）。
-- **路径目标受限（无逃生口）**：扫描目标**始终只能**是指定插件根目录（预设/包目录），
-  且按**符号链接规范化**路径校验（插件目录内的符号链接无法指向外部文件）；插件根目录
-  之外的任何绝对路径一律拒绝。
+- **路径目标已禁用（无逃生口）**：扫描目标**始终只能**是插件键（`preset:`/`package:`）；绝对路径
+  目标在模型工具与 HTTP `/scan` 均不接受（`allowPaths: false`），插件根目录之外的任意路径一律拒绝。
 - **密钥文件永不外发**：采集阶段直接跳过 `.env*`、`*.pem`、`*.key`、`id_rsa`、
   `credentials.json`、`secrets.*` 等敏感文件（点开头文件本就排除）；其余文本在发给
   模型前还会做**行内密钥脱敏**（AWS/`sk-`/GitHub token、私钥块、`password=` 等，含
