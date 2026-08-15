@@ -114,7 +114,16 @@ Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要
 - **密钥文件永不外发**：采集阶段直接跳过 `.env*`、`*.pem`、`*.key`、`id_rsa`、
   `credentials.json`、`secrets.*` 等敏感文件（点开头文件本就排除）；其余文本在发给
   模型前还会做**行内密钥脱敏**（AWS/`sk-`/GitHub token、私钥块、`password=` 等）。
-- **本地端点**：`POST /dsh-security/scan` 默认 10 次/10 秒、单请求最多 50 个目标，
-  且校验 `Origin` 拒绝跨源浏览器请求（CSRF）；服务绑定本机 localhost。
+- **本地端点鉴权（令牌白名单）**：四个 `/dsh-security/*` 端点要求 `x-dsh-security-token`
+  请求头。门禁挂载时生成随机令牌并持久化到 `<stateDir>/token`（0600），同时通过
+  `webServer.tapIndex` 注入到页面（`window.__DSH_SECURITY_TOKEN__`），设置面板自动携带。
+  手动访问示例：
+  ```powershell
+  $tok = (Get-Content "$env:USERPROFILE\.dsh\dsh-security\token" -Raw).Trim()
+  irm http://127.0.0.1:3080/dsh-security/status.json -Headers @{ 'x-dsh-security-token' = $tok }
+  ```
+  管理员可在配置 `endpointTokens` 追加白名单令牌。守卫链：Host 必须是本地主机名
+  （防 DNS rebinding）+ Origin 匹配（CSRF）+ 令牌校验（本地进程）；`POST /scan` 另限流
+  （默认 10 次/10 秒、单请求 ≤50 目标）。
 - **状态目录权限**：`<stateDir>` 与报告目录按 `0700` 创建，`state.json`/
   `summary.json`/`report.md`/`runner.log` 按 `0600` 写入（POSIX）。

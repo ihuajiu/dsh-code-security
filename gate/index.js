@@ -25,6 +25,7 @@ import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync, realpathSync, rmSync, openSync, closeSync, constants as fsConstants } from 'node:fs';
 import { join, dirname, relative, basename, resolve as resolvePath, sep as pathSep } from 'node:path';
 import { homedir } from 'node:os';
+import { randomBytes } from 'node:crypto';
 
 export const name = 'dsh-security-gate';
 
@@ -200,6 +201,38 @@ export function apply(ctx, config = {}) {
   // Heal scans the PREVIOUS process left in 'running' state (zombies) as soon
   // as this process mounts, so the panel never shows a forever-running status.
   healStuckScans(loadState());
+
+  // ── endpoint auth token (whitelist) ────────────────────────────────────────
+  // The localhost endpoints require a bearer token in the `x-dsh-security-token`
+  // header. A random token is generated and persisted (0600) on first mount;
+  // admins may add more tokens via config `endpointTokens`. The settings panel
+  // receives the token through a script injected into the served page
+  // (window.__DSH_SECURITY_TOKEN__) via webServer.tapIndex, so only the real
+  // DSH page (and callers who read the token file) can call the endpoints.
+  const tokenPath = join(cfg.stateDir, 'token');
+  function loadOrCreateToken() {
+    try {
+      if (existsSync(tokenPath)) {
+        const t = readFileSync(tokenPath, 'utf8').trim();
+        if (t.length >= 16) return t;
+      }
+    } catch {
+      /* regenerate */
+    }
+    const t = randomBytes(32).toString('hex');
+    try {
+      writeFileSync(tokenPath, t, { mode: 0o600 });
+    } catch {
+      /* best-effort */
+    }
+    return t;
+  }
+  const endpointToken = loadOrCreateToken();
+  const allowedTokens = new Set([
+    endpointToken,
+    ...(Array.isArray(config.endpointTokens) ? config.endpointTokens : []),
+  ]);
+  const tokenOk = (req) => allowedTokens.has(String((req.headers && req.headers['x-dsh-security-token']) || ''));
 
   // ── tiny helpers ──────────────────────────────────────────────────────────
   // Deliberately function declarations (hoisted): the boot warm-up above calls
@@ -1058,12 +1091,22 @@ export function apply(ctx, config = {}) {
     const webServer = ctx.get('webServer');
     if (webServer === undefined) return false;
     try {
+      // Inject the endpoint token into the served page so the settings panel
+      // can authenticate (same mechanism as the client-modules boot manifest).
+      if (typeof webServer.tapIndex === 'function') {
+        const injectToken = (html) => {
+          const script = '<script>window.__DSH_SECURITY_TOKEN__=' + JSON.stringify(endpointToken) + '<\\/script>';
+          const head = html.indexOf('<head>');
+          return head === -1 ? script + html : html.slice(0, head + 6) + script + html.slice(head + 6);
+        };
+        ctx.effect(() => webServer.tapIndex(injectToken), 'dsh-security-gate: endpoint token bootstrap');
+      }
       webServer.register({
         kind: 'exact',
         path: '/dsh-security/status.json',
         handler: async (req, res) => {
-          if (!sameHost(req)) {
-            sendJson(res, { ok: false, error: 'non-local request rejected' }, 403);
+          if (!sameHost(req) || !tokenOk(req)) {
+            sendJson(res, { ok: false, error: 'non-local or unauthenticated request rejected' }, 403);
             return;
           }
           sendJson(res, await summaryPayload());
@@ -1073,7 +1116,7 @@ export function apply(ctx, config = {}) {
         kind: 'exact',
         path: '/dsh-security/report',
         handler: (req, res) => {
-          if (!sameHost(req)) {
+          if (!sameHost(req) || !tokenOk(req)) {
             res.statusCode = 403;
             res.end('non-local request rejected');
             return;
@@ -1123,9 +1166,9 @@ export function apply(ctx, config = {}) {
           // CSRF/DNS-rebinding guard: the settings panel is same-origin from a
           // LOCAL Host, so reject cross-origin or non-localhost requests.
           // Origin-less requests (curl, local tooling) still hit the rate
-          // limit below.
-          if (!sameHost(req)) {
-            sendJson(res, { ok: false, error: 'cross-origin or non-local request rejected' }, 403);
+          // limit below and must present the token.
+          if (!sameHost(req) || !tokenOk(req)) {
+            sendJson(res, { ok: false, error: 'cross-origin, non-local, or unauthenticated request rejected' }, 403);
             return;
           }
           // Rate limit (F1): the endpoint is unauthenticated on localhost, so
@@ -1164,10 +1207,10 @@ export function apply(ctx, config = {}) {
         kind: 'exact',
         path: '/dsh-security/clear',
         handler: async (req, res) => {
-          // Destructive but local: same Host/origin guard as /scan; no LLM
-          // cost involved, so no rate limit.
-          if (!sameHost(req)) {
-            sendJson(res, { ok: false, error: 'cross-origin or non-local request rejected' }, 403);
+          // Destructive but local: same Host/origin + token guard as /scan;
+          // no LLM cost involved, so no rate limit.
+          if (!sameHost(req) || !tokenOk(req)) {
+            sendJson(res, { ok: false, error: 'cross-origin, non-local, or unauthenticated request rejected' }, 403);
             return;
           }
           let body = '';

@@ -23,6 +23,14 @@ window.__ModuleLoader__.load({
 		const REPORT_URL = "/dsh-security/report?id=";
 		const SCAN_URL = "/dsh-security/scan";
 		const CLEAR_URL = "/dsh-security/clear";
+		// Endpoint bearer token injected into the page by the gate
+		// (window.__DSH_SECURITY_TOKEN__).
+		var TOKEN = (typeof window !== "undefined" && window.__DSH_SECURITY_TOKEN__) || "";
+		function authHeaders(extra) {
+			var h = Object.assign({}, extra || {});
+			if (TOKEN) h["x-dsh-security-token"] = TOKEN;
+			return h;
+		}
 
 		const theme = {
 			label: "var(--dsw-alias-label-primary, #1a1a1a)",
@@ -399,11 +407,12 @@ window.__ModuleLoader__.load({
 			var refresh = useCallback(function () {
 				setLoading(true);
 				setError(null);
-				fetch(STATUS_URL)
+				fetch(STATUS_URL, { headers: authHeaders() })
 					.then(function (r) {
 						var ct = "";
 						if (r.headers && r.headers.get) ct = String(r.headers.get("content-type") || "");
 						if (ct.indexOf("json") < 0) throw new Error("门禁端点未响应（返回 HTML，疑似门禁未挂载）");
+						if (r.status === 403) throw new Error("未授权（令牌缺失或失效）— 请强制刷新页面");
 						if (!r.ok) throw new Error("HTTP " + r.status);
 						return r.json();
 					})
@@ -424,8 +433,9 @@ window.__ModuleLoader__.load({
 			var openReport = useCallback(function (key, dir) {
 				if (open && open.key === key) { setOpen(null); return; }
 				setOpen({ key: key, text: null });
-				fetch(REPORT_URL + encodeURIComponent(dir))
+				fetch(REPORT_URL + encodeURIComponent(dir), { headers: authHeaders() })
 					.then(function (r) {
+						if (r.status === 403) throw new Error("未授权（令牌缺失或失效）— 请强制刷新页面");
 						if (!r.ok) throw new Error("HTTP " + r.status);
 						return r.text();
 					})
@@ -462,12 +472,13 @@ window.__ModuleLoader__.load({
 				setBusy(marker);
 				fetch(SCAN_URL, {
 					method: "POST",
-					headers: { "content-type": "application/json" },
+					headers: authHeaders({ "content-type": "application/json" }),
 					body: JSON.stringify({ plugins: list }),
 				})
 					.then(function (r) { return r.json(); })
-					.then(function () {
+					.then(function (d) {
 						setBusy(null);
+						if (d && d.ok === false) throw new Error(d.error || "unknown error");
 						setTimeout(refresh, 3000);
 					})
 					.catch(function (e) {
@@ -481,12 +492,13 @@ window.__ModuleLoader__.load({
 				if (!window.confirm("确定清除" + label + "的审计记录？其报告文件与历史将一并删除，不可恢复。")) return;
 				fetch(CLEAR_URL, {
 					method: "POST",
-					headers: { "content-type": "application/json" },
+					headers: authHeaders({ "content-type": "application/json" }),
 					body: JSON.stringify(all ? { all: true } : { plugins: keys }),
 				})
 					.then(function (r) { return r.json(); })
-					.then(function () {
+					.then(function (d) {
 						setOpen(null);
+						if (d && d.ok === false) throw new Error(d.error || "unknown error");
 						refresh();
 					})
 					.catch(function (e) {
