@@ -12,9 +12,14 @@
 #      own directory, so the payload travels with the preset.
 #   2. `tool-skill` exposes the skill catalog/loader to the agent.
 #   3. A local plugin row (`./plugins/dsh-security/index.js`) registers the
-#      `dsh_security_scan`, `dsh_security_findings`,
+#      `dsh_security_resources`, `dsh_security_scan`, `dsh_security_findings`,
 #      `dsh_security_scans_compare`, and `dsh_security_cli` tools, which
 #      execute the @openai/codex-security CLI through the host `shell` service.
+#      The plugin enforces: shell-literal argument quoting (no injection),
+#      scan/findings path confinement to the working directory, a subcommand
+#      whitelist for `dsh_security_cli`, a 5-minute foreground timeout cap
+#      (longer runs must use run_in_background: true), and a load-time
+#      integrity check of the bundled payload scripts.
 #
 # A service row here MUST sit inside a group carrying an `isolate` realm.
 # Without one it publishes into the root realm, where it is process-global —
@@ -224,4 +229,9 @@
   name: ./plugins/dsh-security/index.js
   config:
     cliCommand: npx --yes @openai/codex-security
-    scanTimeoutMs: 3600000
+    # Foreground scan timeout default and hard cap (ms). Anything whose
+    # effective timeout exceeds maxForegroundTimeoutMs must set
+    # run_in_background: true, so a hung `npx` invocation cannot tie up the
+    # shell executor for an hour.
+    scanTimeoutMs: 300000
+    maxForegroundTimeoutMs: 300000
