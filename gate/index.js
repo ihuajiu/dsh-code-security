@@ -22,6 +22,7 @@
 // (`@dsh.so/dsh-security-gate`) to the profile's bundle layer automatically;
 // no manual cordis.patch.yml row is needed.
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync, realpathSync, rmSync, openSync, closeSync, constants as fsConstants } from 'node:fs';
 import { join, dirname, relative, basename, resolve as resolvePath, sep as pathSep } from 'node:path';
 import { homedir } from 'node:os';
@@ -203,6 +204,26 @@ function sanitizeReportHtml(text) {
  * rejected call.
  */
 const effortSupport = new Map();
+
+/**
+ * Load the audit triage baseline (gate/audit-baseline.json, shipped with this
+ * package): every finding reported across past audit rounds and its final
+ * verdict (fixed / false-positive / accepted). Injected into the LLM scan
+ * prompt so the auditor does not re-report previously resolved items — the
+ * root cause of recurring false positives was that each scan started with no
+ * memory of prior triage. Missing/unreadable baseline degrades to [].
+ */
+const AUDIT_BASELINE = (() => {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const raw = readFileSync(join(here, 'audit-baseline.json'), 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed.entries)) return [];
+    return parsed.entries.filter((e) => e && typeof e.id === 'string');
+  } catch {
+    return [];
+  }
+})();
 
 export function apply(ctx, config = {}) {
   const dshHome = config.dshHome ?? join(homedir(), '.dsh');
@@ -781,6 +802,22 @@ export function apply(ctx, config = {}) {
       'and a practical remediation.\n' +
       '- Missing deployment evidence lowers confidence; it does not by itself defeat a ' +
       'source-backed vulnerability.\n\n' +
+      // Prior-triage memory (false-positive reduction): findings already
+      // reviewed in earlier rounds are listed with their verdicts. The
+      // auditor must not re-report them unless the code has changed — this
+      // is the single most effective fix for recurring false positives.
+      (AUDIT_BASELINE.length > 0
+        ? 'PRIOR-TRIAGE MEMORY (do not re-report these unless the code changed):\n' +
+          AUDIT_BASELINE.map((e) =>
+            '- [' + e.id + '] ' + e.verdict + ' — ' + e.title + '. ' + e.detail
+          ).join('\n') +
+          '\nThese findings were previously analyzed and resolved (fixed, false-positive, or accepted as ' +
+          'documented design). DO NOT list them again. If you believe one is STILL present, you must (a) cite ' +
+          'the exact file:line in the CURRENT harvested code that still exhibits it and (b) explain what ' +
+          'changed since the recorded resolution; otherwise omit it. Verdicts: fixed = the code now defends ' +
+          'against it; false-positive = the defense exists in code the earlier auditor overlooked; ' +
+          'accepted = documented design/admin-trusted config/platform behavior, not a vulnerability.\n\n'
+        : '') +
       'Output a markdown report. START with a "Summary" section containing a ' +
       'markdown table counting findings by severity (rows: 严重/Critical, 高/High, ' +
       '中/Medium, 低/Low, 合计/Total, with counts) — the summary comes FIRST so ' +

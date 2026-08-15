@@ -110,6 +110,11 @@ Windows 的 `workspace-write` 沙箱不可用；默认 `engine: 'llm'` 不需要
   （需其自身认证与网络，源码仍会交给 OpenAI 扫描管线）。
 - **路径目标已禁用（无逃生口）**：扫描目标**始终只能**是插件键（`preset:`/`package:`）；绝对路径
   目标在模型工具与 HTTP `/scan` 均不接受（`allowPaths: false`），插件根目录之外的任意路径一律拒绝。
+- **甄别记忆（降低误报）**：`gate/audit-baseline.json` 记录历轮审计中已甄别的发现及其结论
+  （fixed / false-positive / accepted）。每次 llm 审计时该清单随提示词注入，审计模型**不得重复
+  报告**清单内项目，除非能引用当前代码中已变化的具体 `file:line` 证明其复活 —— 这是对"每轮
+  重扫都重新报一遍旧误报"的直接缓解。维护者每轮甄别后向该文件追加新条目（保持条目稳定，
+  不改写历史）。
 - **密钥文件永不外发**：采集阶段直接跳过 `.env*`、`*.pem`、`*.key`、`id_rsa`、
   `credentials.json`、`secrets.*` 等敏感文件（点开头文件本就排除）；其余文本在发给
   模型前还会做**行内密钥脱敏**（AWS/`sk-`/GitHub token、私钥块、`password=` 等，含
