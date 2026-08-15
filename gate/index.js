@@ -141,6 +141,20 @@ function readFileSafe(p) {
   return readFileSync(p, 'utf8');
 }
 
+/**
+ * Neutralize HTML in a model-generated report before it is written to disk:
+ * escape the angle brackets of element tags that would execute (script,
+ * iframe, object, embed, img, svg, link, meta, style, form, math, video,
+ * audio, base, template — plus their closers) and of HTML comments. Other `<`
+ * (comparisons, generics) are untouched. The settings panel renders reports
+ * through an escape-first markdown pipeline anyway; this guards the raw
+ * report.md against being opened in a browser by any other consumer.
+ */
+function sanitizeReportHtml(text) {
+  const DANGEROUS = /<\/?(script|iframe|object|embed|img|svg|link|meta|style|form|math|video|audio|base|template)(\s[^>]*)?>|<!--/gi;
+  return String(text).replace(DANGEROUS, (m) => m.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+}
+
 export function apply(ctx, config = {}) {
   const dshHome = config.dshHome ?? join(homedir(), '.dsh');
   const cfg = {
@@ -694,7 +708,7 @@ export function apply(ctx, config = {}) {
       clearTimeout(abortTimer);
     }
     try {
-      writeFileSync(join(reportDir, 'report.md'), report + REPORT_FOOTER, { mode: 0o600 });
+      writeFileSync(join(reportDir, 'report.md'), sanitizeReportHtml(report) + REPORT_FOOTER, { mode: 0o600 });
       writeFileSync(join(reportDir, 'runner.log'), 'engine: llm\nprovider: ' + provider + '\nmodel: ' + model + '\ntarget: ' + info.root + '\nharvested chars: ' + harvested.length + '\nfinish: ' + finishText + (usageText ? '\nusage: ' + usageText : '') + (reasoning.length > 0 ? '\nreasoning chars: ' + reasoning.length : ''), { mode: 0o600 });
     } catch {
       /* best-effort */
@@ -882,7 +896,7 @@ export function apply(ctx, config = {}) {
   }
 
   // ── resolve user-specified targets for the batch tool ─────────────────────
-  async function resolveTargets(ids) {
+  async function resolveTargets(ids, { allowPaths = false } = {}) {
     const found = await discoverPlugins();
     const out = [];
     const errors = [];
@@ -905,7 +919,10 @@ export function apply(ctx, config = {}) {
       // every filesystem use (harvest, CLI scan, clear, report serving)
       // re-canonicalizes and re-validates against the plugin root, so a
       // tampered state.json cannot redirect a read or write outside it.
-      if (/^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('/')) {
+      // Path targets are gated by `allowPaths`: the model tool disables them
+      // (F1: a prompt-injected model must not pick arbitrary paths); only the
+      // token-protected HTTP endpoint keeps them.
+      if ((/^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('/')) && allowPaths) {
         const resolved = canonicalizePath(resolvePath(trimmed));
         const keyed = (p) => (typeof process !== 'undefined' && process.platform === 'win32' ? p.toLowerCase() : p);
         const inside = [...found.values()].some((info) => {
@@ -962,7 +979,7 @@ export function apply(ctx, config = {}) {
     tools.register({
       name: 'dsh_security_scan_plugins',
       description:
-        'Batch-audit one or more plugins with the harness\'s own model (no external authentication) and return per-plugin results. Identifiers may be an agent-preset id (e.g. codex-security), a profile plugin package name (e.g. dsh-plugin-finder), or an absolute directory path. Each audit harvests the plugin source and produces a markdown report under the gate state dir (summary in summary.json).',
+        'Batch-audit one or more plugins with the harness\'s own model (no external authentication) and return per-plugin results. Identifiers are an agent-preset id (e.g. codex-security) or a profile plugin package name (e.g. dsh-plugin-finder) — absolute paths are not accepted from this tool (path scans are only available through the token-protected settings panel). Each audit harvests the plugin source and produces a markdown report under the gate state dir (summary in summary.json).',
       parameters: {
         type: 'object',
         properties: {
@@ -984,7 +1001,7 @@ export function apply(ctx, config = {}) {
       },
       output,
       async execute(args, exec) {
-        const { targets, errors } = await resolveTargets(Array.isArray(args.plugins) ? args.plugins : []);
+        const { targets, errors } = await resolveTargets(Array.isArray(args.plugins) ? args.plugins : [], { allowPaths: false });
         const lines = [];
         for (const target of targets) {
           // Bound the tool-supplied timeout (F9): clamp to [1s, 1h] so a
@@ -1247,7 +1264,7 @@ export function apply(ctx, config = {}) {
             sendJson(res, { ok: false, error: 'too many plugins in one request (max 50)' }, 400);
             return;
           }
-          const { targets, errors } = await resolveTargets(plugins);
+          const { targets, errors } = await resolveTargets(plugins, { allowPaths: true });
           const started = [];
           for (const target of targets) {
             queueScan(target, { force: true });
