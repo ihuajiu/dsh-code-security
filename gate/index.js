@@ -207,15 +207,20 @@ export function apply(ctx, config = {}) {
     scanRateLimit: config.scanRateLimit ?? 10,
     scanRateWindowMs: config.scanRateWindowMs ?? 10000,
     maxOutputTokens: config.maxOutputTokens ?? 32000,
-    // llm call timeout. Reasoning-heavy providers (or the no-effort retry
-    // path) can reason a long time on a big audit — 240s was too tight and
-    // aborted mid-reasoning; 10 minutes gives headroom.
-    llmTimeoutMs: config.llmTimeoutMs ?? 600000,
+    // llm call timeout policy (two-tier):
+    //   llmTimeoutMs — hard ceiling for the whole stream; even a slowly
+    //     progressing stream is cut here (default 15 minutes; was 240s, too
+    //     tight — it aborted reasoning-heavy models like k3 mid-thought).
+    //   llmIdleMs — idle watchdog: a stream that emits NO chunk (text or
+    //     reasoning) for this long is aborted promptly (hung transport),
+    //     while a model that keeps producing deltas is never cut mid-report.
+    llmTimeoutMs: config.llmTimeoutMs ?? 900000,
+    llmIdleMs: config.llmIdleMs ?? 120000,
     tickWatchdogMs: config.tickWatchdogMs ?? 180000,
     // A scan left in 'running' state longer than this (e.g. the process died
     // mid-scan) is healed to 'failed' so the UI status can update and the
     // plugin can be re-audited. Default: max(llm, cli) timeouts + margin.
-    stuckScanTimeoutMs: config.stuckScanTimeoutMs ?? 960000,
+    stuckScanTimeoutMs: config.stuckScanTimeoutMs ?? 1200000,
     // DeepSeek reasoning models burn the output budget on reasoning and then
     // stop without a final answer; for one-shot bounded audits we disable
     // thinking so the whole budget goes to the report text.
@@ -672,7 +677,20 @@ export function apply(ctx, config = {}) {
     let finishText = 'unknown';
     let usageText = '';
     const ctrl = new AbortController();
+    // Hard ceiling: the stream may run at most llmTimeoutMs total.
     const abortTimer = setTimeout(() => ctrl.abort('dsh-security-gate llm timeout'), cfg.llmTimeoutMs);
+    // Idle watchdog: reasoning models (e.g. k3) legitimately stream only
+    // reasoning deltas for a long time before producing text. A hard wall
+    // clock cut them mid-thought. Instead, reset an idle timer on EVERY
+    // chunk (text or reasoning); only a stream that goes silent for
+    // llmIdleMs (hung transport / provider) is aborted early. The hard
+    // ceiling above still bounds the total run.
+    let lastChunkAt = Date.now();
+    const idleTimer = setInterval(() => {
+      if (Date.now() - lastChunkAt > cfg.llmIdleMs) {
+        ctrl.abort('dsh-security-gate llm idle timeout (no chunks for ' + cfg.llmIdleMs + 'ms)');
+      }
+    }, 5000);
     try {
       const callSignal = signal !== undefined && typeof AbortSignal.any === 'function'
         ? AbortSignal.any([signal, ctrl.signal])
@@ -693,6 +711,7 @@ export function apply(ctx, config = {}) {
         });
         for await (const chunk of chunks) {
           if (!chunk || typeof chunk !== 'object') continue;
+          lastChunkAt = Date.now();
           if (chunk.type === 'text-delta' && typeof chunk.text === 'string') report += chunk.text;
           else if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') reasoning += chunk.text;
           else if (chunk.type === 'finish') {
@@ -750,6 +769,7 @@ export function apply(ctx, config = {}) {
       scan.note = String(error && error.message ? error.message : error);
     } finally {
       clearTimeout(abortTimer);
+      clearInterval(idleTimer);
     }
     try {
       writeFileSync(join(reportDir, 'report.md'), sanitizeReportHtml(report) + REPORT_FOOTER, { mode: 0o600 });
