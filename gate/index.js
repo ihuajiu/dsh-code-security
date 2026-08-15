@@ -198,7 +198,14 @@ export function apply(ctx, config = {}) {
     // arbitrary files can never be harvested and shipped to the model provider.
     sandboxMode: config.sandboxMode, // undefined = executor default (cli engine only)
     maxHarvestChars: config.maxHarvestChars ?? 400000,
-    maxFileBytes: config.maxFileBytes ?? 65536,
+    // Per-file ceiling: files larger than this are SKIPPED (not truncated) so
+    // a half-file view can never mislead the auditor. The default used to be
+    // 64KB, which silently dropped whole server files (e.g. this gate's own
+    // index.js at ~70KB), leaving the audit blind to the code the README only
+    // describes — and producing false-positive "missing validation" findings.
+    // 256KB keeps typical source files in scope; maxHarvestChars still bounds
+    // the total prompt.
+    maxFileBytes: config.maxFileBytes ?? 262144,
     // Secret hardening for the llm engine: never harvest secret-bearing files
     // and redact inline secret values before the content reaches the provider.
     harvestExcludePatterns: config.harvestExcludePatterns ?? SECRET_FILE_PATTERNS,
@@ -927,7 +934,16 @@ export function apply(ctx, config = {}) {
           } catch {
             continue;
           }
-          if (!st.size || st.size > cfg.maxFileBytes) continue;
+          if (!st.size || st.size > cfg.maxFileBytes) {
+            // Mark skipped files instead of dropping them silently: an auditor
+            // must know a large source file was not examined, or it may report
+            // "validation missing" for code that exists but was never shown.
+            if (st.size && st.size > cfg.maxFileBytes) {
+              const rel = relative(canonRoot, canon) || entry.name;
+              out.push('\n[file omitted: ' + rel + ' exceeds maxFileBytes (' + cfg.maxFileBytes + ' bytes)]');
+            }
+            continue;
+          }
           let text;
           try {
             text = readFileSafe(canon);
