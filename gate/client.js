@@ -164,6 +164,8 @@ window.__ModuleLoader__.load({
 				background: theme.bgModule,
 			},
 			reportTitle: { margin: 0, fontSize: "12.5px", fontWeight: 600, color: theme.label2 },
+			langActive: { border: "1px solid " + theme.border, background: theme.bgModule, color: theme.label, borderRadius: "6px", padding: "3px 8px", fontSize: "11.5px", cursor: "pointer" },
+			langIdle: { border: "1px solid transparent", background: "transparent", color: theme.label3, borderRadius: "6px", padding: "3px 8px", fontSize: "11.5px", cursor: "pointer" },
 			reportBody: {
 				padding: "14px",
 				fontSize: "12.5px",
@@ -285,6 +287,16 @@ window.__ModuleLoader__.load({
 			".dshsec-body a{color:" + theme.accent + "}",
 		].join(" ");
 
+		/** Split a bilingual report into its English and Chinese halves on the
+		 *  generator marker; zh is null when the model produced no translation. */
+		function splitReport(text) {
+			var marker = "<!-- REPORT_ZH -->";
+			var s = String(text || "");
+			var idx = s.indexOf(marker);
+			if (idx < 0) return { en: s, zh: null };
+			return { en: s.slice(0, idx), zh: s.slice(idx + marker.length) };
+		}
+
 		/** Clipboard fallback for non-secure contexts (no navigator.clipboard). */
 		function legacyCopy(text) {
 			var ta = document.createElement("textarea");
@@ -330,6 +342,9 @@ window.__ModuleLoader__.load({
 			var useStateOpen = useState(null);
 			var open = useStateOpen[0];
 			var setOpen = useStateOpen[1];
+			var useStateLang = useState("en");
+			var lang = useStateLang[0];
+			var setLang = useStateLang[1];
 			var useStateCopied = useState(false);
 			var copied = useStateCopied[0];
 			var setCopied = useStateCopied[1];
@@ -379,18 +394,21 @@ window.__ModuleLoader__.load({
 			}, [open]);
 
 			var copyReport = useCallback(function () {
-				if (!open || !open.text) return;
+				if (!open || open.text === null) return;
+				var split = splitReport(open.text);
+				var zhOk = split.zh !== null && split.zh.trim() !== "";
+				var text = lang === "zh" && zhOk ? split.zh : split.en;
 				var done = function () {
 					setCopied(true);
 					setTimeout(function () { setCopied(false); }, 1500);
 				};
 				if (navigator.clipboard && navigator.clipboard.writeText) {
-					navigator.clipboard.writeText(open.text).then(done).catch(function () { legacyCopy(open.text); done(); });
+					navigator.clipboard.writeText(text).then(done).catch(function () { legacyCopy(text); done(); });
 				} else {
-					legacyCopy(open.text);
+					legacyCopy(text);
 					done();
 				}
-			}, [open]);
+			}, [open, lang]);
 
 			var triggerScan = useCallback(function (keys) {
 				var list = Array.isArray(keys) ? keys : [keys];
@@ -491,20 +509,34 @@ window.__ModuleLoader__.load({
 					p.note ? react.createElement("p", { style: styles.note }, p.note) : null,
 					react.createElement("div", { style: styles.actions }, actions),
 					open !== null && open.key === e.key
-						? react.createElement("div", { style: Object.assign({}, styles.report, { marginTop: "10px" }) },
-							react.createElement("div", { style: styles.reportHead },
-								react.createElement("p", { style: styles.reportTitle }, "审计报告"),
-								react.createElement("div", { style: { display: "flex", gap: "8px", alignItems: "center" } },
-									react.createElement("button", {
-										style: styles.buttonGhost,
-										onClick: copyReport,
-										disabled: open.text === null,
-										"aria-label": "复制报告",
-									}, copied ? "已复制" : "复制"),
-									react.createElement("button", { style: styles.buttonGhost, onClick: function () { setOpen(null); } }, "关闭"))),
-							open.text === null
-								? react.createElement("div", { style: { padding: "14px", color: theme.label3, fontSize: "12px" } }, "加载中…")
-								: react.createElement("div", { className: "dshsec-body", style: styles.reportBody, dangerouslySetInnerHTML: { __html: mdHtml(open.text) } }))
+						? (function () {
+							var split = open.text === null ? null : splitReport(open.text);
+							var zhAvailable = split !== null && split.zh !== null && split.zh.trim() !== "";
+							var showZh = lang === "zh" && zhAvailable;
+							var display = open.text === null ? null : (showZh ? split.zh : split.en);
+							return react.createElement("div", { style: Object.assign({}, styles.report, { marginTop: "10px" }) },
+								react.createElement("div", { style: styles.reportHead },
+									react.createElement("div", { style: { display: "flex", gap: "4px", alignItems: "center" } },
+										react.createElement("p", { style: Object.assign({}, styles.reportTitle, { marginRight: "4px" }) }, "审计报告"),
+										react.createElement("button", { style: lang === "en" ? styles.langActive : styles.langIdle, onClick: function () { setLang("en"); } }, "English"),
+										react.createElement("button", { style: lang === "zh" ? styles.langActive : styles.langIdle, onClick: function () { setLang("zh"); } }, "中文")),
+									react.createElement("div", { style: { display: "flex", gap: "8px", alignItems: "center" } },
+										react.createElement("button", {
+											style: styles.buttonGhost,
+											onClick: copyReport,
+											disabled: open.text === null,
+											"aria-label": "复制报告",
+										}, copied ? "已复制" : "复制"),
+										react.createElement("button", { style: styles.buttonGhost, onClick: function () { setOpen(null); } }, "关闭"))),
+								open.text === null
+									? react.createElement("div", { style: { padding: "14px", color: theme.label3, fontSize: "12px" } }, "加载中…")
+									: react.createElement("div", null,
+										lang === "zh" && !zhAvailable
+											? react.createElement("p", { style: { margin: "8px 14px 0", fontSize: "11.5px", color: theme.warn } },
+												"中文版未生成（该报告仅含英文）— 以下显示英文原文")
+											: null,
+										react.createElement("div", { className: "dshsec-body", style: styles.reportBody, dangerouslySetInnerHTML: { __html: mdHtml(display) } })));
+						})()
 						: null);
 			});
 

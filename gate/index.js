@@ -389,6 +389,12 @@ export function apply(ctx, config = {}) {
       'one subsection per finding (title, Location, Description, Attack path, Impact, Remediation); ' +
       'and a Summary counting findings by severity. If there are no findings, state "No findings" ' +
       'with the evidence-grounded rationale.\n\n' +
+      // Bilingual reports: complete English report first, then a complete
+      // Chinese translation, separated by a marker the panel splits on.
+      'Language: write the ENTIRE report in ENGLISH first — it must be complete and standalone. ' +
+      'Then append a complete CHINESE translation of the same report (same structure and headings, ' +
+      'translated, not summarized). Separate the two parts with a single line containing exactly ' +
+      'this marker: <!-- REPORT_ZH -->\n\n' +
       harvested;
     let report = '';
     let reasoning = '';
