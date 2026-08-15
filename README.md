@@ -13,7 +13,7 @@
 - 新插件安装时**自动审计**：监控 `~/.dsh/.agent-presets/` 的预设与
   `~/.dsh/profiles/*/` 的插件包（`dsh plugin` 安装的依赖/bundle），轮询发现新插件
   即用**宿主模型**（同会话路由，零认证）采集源码生成安全审计报告。
-- **批量审计**：全局工具 `dsh_security_scan_plugins`（按预设 id / 包名 / 路径指定
+- **批量审计**：全局工具 `dsh_security_scan_plugins`（按预设 id / 包名指定
   多个插件）与 `dsh_security_scan_status`（查看所有插件审计状态）。
 - **GUI 面板**：设置 →「安全审计」分区，展示每插件审计状态、打开报告、一键重新审计。
 - 状态与报告：`<DSH_HOME>/dsh-security/{state.json, summary.json, reports/...}`。
@@ -32,7 +32,7 @@
 
 ## 前置条件
 
-- DSH 环境。
+- DSH 环境（DeepSeek Harness）。
 - **默认路径（本地模型审计）**：无需任何外部认证/API key，使用宿主 `llm` 服务
   （同会话模型路由）。
 - 可选路径（CLI 工具 / 门禁 `engine: 'cli'`）：Node.js ≥ 22.13 / Python ≥ 3.10 /
@@ -42,37 +42,7 @@
 
 ## 安装（快速开始）
 
-**总共两步：跑一次脚本，然后重启 DSH。**
-
-```powershell
-# Windows：进入项目文件夹，打开 PowerShell，运行：
-.\install.ps1
-```
-
-```bash
-# macOS / Linux
-./install.sh
-```
-
-脚本会一次性装好**全部内容**：
-
-- 「安全审计模式」预设 → 新建会话时可选（含 5 个 `dsh_security_*` 扫描工具 + 13 个安全审计技能）
-- 「安全审计门禁」插件 → 自动审计新安装的插件（用你本机模型，**免认证**）
-- 自动清理旧版本遗留的配置（重复执行脚本也安全，不会装坏）
-
-装完怎么用：
-
-1. **重启 DSH**
-2. 新建会话 → 预设选择器选「安全审计模式」，即可扫描仓库
-3. 打开 **设置 → 安全审计** 面板，查看门禁自动审计的状态与报告
-
-> **没装成功？** 最常见原因是电脑上缺少 `pnpm`（门禁安装依赖它）。先执行
-> `npm install -g pnpm` 装好，再重跑安装脚本即可。
-
-### 在线安装（一条命令，无需下载项目）
-
-不需要先克隆项目，直接复制一条命令执行——脚本会检测到自身没有携带项目文件，
-自动下载整个仓库后再安装：
+**一条命令在线安装，然后重启 DSH。** 无需克隆项目、无需手动拷贝任何文件：
 
 ```powershell
 # Windows（PowerShell）
@@ -84,10 +54,52 @@ irm https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/install.ps1
 curl -fsSL https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/install.sh | bash
 ```
 
-- 需要已安装 `git`（下载用）与 `pnpm`（门禁安装用）。
-- 仓库地址可自定义：Windows 设 `$env:DSH_CODE_SECURITY_REPO_URL`，macOS/Linux 设
-  `DSH_CODE_SECURITY_REPO_URL` 环境变量（镜像场景）。
-- 仓库：https://github.com/ihuajiu/dsh-code-security
+脚本会自动：下载项目到持久缓存（`~/.dsh/cache/dsh-code-security`，后续更新用
+`git pull` + 重启 DSH）、安装「安全审计模式」预设、把「安全审计门禁」挂载进 web
+profile。**幂等**：重复执行安全，不会装坏；旧版本遗留的手动配置行会自动迁移。
+
+> 需要已安装 `git`（下载用）与 `pnpm`（门禁安装用）。仓库地址可自定义：
+> Windows 设 `$env:DSH_CODE_SECURITY_REPO_URL`，macOS/Linux 设
+> `DSH_CODE_SECURITY_REPO_URL` 环境变量（镜像场景）。
+
+装完怎么用：
+
+1. **重启 DSH**
+2. 新建会话 → 预设选择器选「安全审计模式」，即可扫描仓库
+3. 打开 **设置 → 安全审计** 面板，查看门禁自动审计的状态与报告
+
+> **没装成功？** 最常见原因是电脑上缺少 `pnpm`（门禁安装依赖它）。先执行
+> `npm install -g pnpm` 装好，再重跑安装脚本即可。
+
+### npm 安装（可选，面向开发者）
+
+两个组件已发布到 npmjs，也可作为普通 npm 包直接安装：
+
+```bash
+npm install @dsh.so/dsh-security-gate      # 安全门禁宿主插件
+npm install @dsh.so/dsh-security-tools     # 安全审计模式工具插件（含 bundled 载荷）
+```
+
+- scoped 包名（`@dsh.so/...`）是 npm 标准作用域，安装、引用、升级均无问题，
+  无需任何特殊配置；`@dsh.so/dsh-security-tools` 的 bundled 载荷（107 个文件）
+  已打进包内，完整性校验在包内布局下照常通过。
+- 但 **npm 安装 ≠ 插件生效**：门禁仍需要挂载进 profile
+  （`dsh plugin --profile web add <包安装路径>`）或使用上方的一键脚本，
+  预设仍需要放进 `~/.dsh/.agent-presets/`。对最终用户，**推荐用上方在线脚本**。
+
+### 本地脚本安装（离线/内网环境）
+
+项目已下载到本地时，也可直接运行脚本（与在线安装等价）：
+
+```powershell
+# Windows：进入项目文件夹，打开 PowerShell，运行：
+.\install.ps1
+```
+
+```bash
+# macOS / Linux
+./install.sh
+```
 
 ### 手动安装（可选，高级用户）
 
@@ -136,8 +148,10 @@ dsh plugin --profile web add <项目路径>\gate
 - **前台超时上限**：前台命令默认 5 分钟（`scanTimeoutMs: 300000`），超过
   `maxForegroundTimeoutMs: 300000` 必须 `run_in_background: true`，避免挂起的 `npx`
   长时间占用 shell 执行器。
-- **载荷完整性**：插件加载时对 `bundled/scripts/` 下全部 Python 脚本做 SHA-256 校验
-  （清单内嵌于插件代码）；不一致时 `dsh_security_resources` 会报告 FAILED，此时不得执行 bundled 脚本。
+- **载荷完整性（fail-closed）**：插件加载时对整个 `bundled/`（107 个文件：技能、
+  references、schemas、examples、scripts、MCP 运行时）做 SHA-256 校验（清单内嵌于
+  插件代码）；任一文件缺失、多余或哈希不符，插件**拒绝加载**（不再仅警告）。
+  `dsh_security_resources` 每次调用还会重新校验，失败即抛错、不返回任何路径。
 
 技能会按需由模型通过 skill 加载器读取；`dsh-security` 适配技能说明如何用
 DSH 工具替换上游技能中提到的 Codex MCP 工具（上游技能自带 "prompt-only"
@@ -149,14 +163,18 @@ DSH 工具替换上游技能中提到的 Codex MCP 工具（上游技能自带 "
 
 ```
 openai-code-security/
-├── gate/                   # 安全门禁宿主插件 @dsh.so/dsh-security-gate
+├── gate/                   # 安全门禁宿主插件 @dsh.so/dsh-security-gate（已发布 npmjs）
 │   ├── index.js            #   零依赖 cordis 插件
-│   ├── client.js           #   设置页「安全审计」面板
+│   ├── client.js           #   设置页「安全审计」面板（中英双语，跟随系统语言）
 │   ├── cordis.patch.yml    #   bundle 补丁（dsh plugin add 自动挂载）
+│   ├── audit-baseline.json #   历轮审计甄别记忆（注入审计提示词，降低误报）
 │   └── README.md
 ├── agent.cordis.yml        # 预设组合：standard 全量 + dsh-security 附加行
 ├── preset.yml              # 预设元数据
-├── plugins/dsh-security/   # 本地工具插件（相对路径行 ./plugins/dsh-security/index.js）
+├── plugins/dsh-security/   # 本地工具插件 @dsh.so/dsh-security-tools（已发布 npmjs）
+│   ├── index.js            #   5 个 dsh_security_* 工具（相对路径行引用）
+│   ├── bundled/            #   载荷副本（npm 包自包含；预设布局走仓库根 bundled/）
+│   └── README.md
 ├── skills/dsh-security/    # DSH 适配入口技能
 ├── bundled/                # 上游 _bundled_plugin 原样拷贝（Apache-2.0）
 │   ├── skills/             #   13 个上游安全工作流技能（DSH 技能格式）
@@ -166,6 +184,10 @@ openai-code-security/
 ├── install.ps1 / install.sh
 └── README.md
 ```
+
+> **npm 发布**：`@dsh.so/dsh-security-gate` 与 `@dsh.so/dsh-security-tools` 均已发布到
+> npmjs（Apache-2.0）。tools 包的 bundled 载荷同时以 `./bundled/`（包内）与
+> `../../bundled/`（预设布局）两种路径解析，两种安装方式下完整性校验均通过。
 
 ## 架构与原理
 
@@ -229,10 +251,14 @@ SQL/NoSQL 注入、XSS、缺失认证/授权、越权访问与 IDOR、路径穿�
 
 - **自动审计**：轮询发现新预设/新插件 → 有界采集源码 → 宿主模型审计（免认证），
   已审计且未变化的插件自动跳过
-- **批量/状态**：全局工具 `dsh_security_scan_plugins`（按预设 id/包名/路径，可 force 重扫）、
-  `dsh_security_scan_status`（查看全部审计状态）
+- **批量/状态**：全局工具 `dsh_security_scan_plugins`（按预设 id/包名，可 force 重扫；
+  不支持路径目标）、`dsh_security_scan_status`（查看全部审计状态）
+- **甄别记忆（降低误报）**：`audit-baseline.json` 记录历轮审计已甄别的发现及其结论
+  （fixed / false-positive / accepted），每次审计注入提示词，模型不得重复报告已知项，
+  除非能引用已变化的代码行证明其复活
 - **引擎**：`llm`（默认，模型审计零认证）或 `cli`（OpenAI Codex Security 官方扫描，需其认证）
-- **GUI**：设置 →「安全审计」面板（状态/报告/一键重审）+ `/dsh-security/*` HTTP 端点
+- **GUI**：设置 →「安全审计」面板（状态/报告/一键重审；中英双语跟随系统语言）
+  + `/dsh-security/*` HTTP 端点（token + Host/Origin 鉴权 + 限流）
 
 ## 卸载
 
