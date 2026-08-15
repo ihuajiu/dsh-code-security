@@ -17,10 +17,10 @@
 // host services defensively via ctx.get() and never throws from apply(), so a
 // composition that includes it degrades gracefully instead of failing to mount.
 //
-// Install: `dsh plugin --profile <name> add <this directory>`, then add a row
-// to the profile's cordis.patch.yml:
-//   - id: dsh-security-gate
-//     name: dsh-security-gate
+// Install: `dsh plugin --profile <name> add <this directory>` — the
+// `dsh.bundle.patch` declaration makes `dsh plugin add` append this package
+// (`@dsh.so/dsh-security-gate`) to the profile's bundle layer automatically;
+// no manual cordis.patch.yml row is needed.
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
@@ -83,15 +83,24 @@ export function apply(ctx, config = {}) {
   }
 
   // ── tiny helpers ──────────────────────────────────────────────────────────
-  const quote = (value) => {
+  // Deliberately function declarations (hoisted): the boot warm-up above calls
+  // writeSummary/saveState before these lines execute, and a const arrow would
+  // sit in the temporal dead zone there ("Cannot access 'nowIso' before
+  // initialization" on first run, when summary.json does not exist yet).
+  function quote(value) {
     const s = String(value);
     if (s.length === 0) return '""';
     return /[\s"'$`]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s;
-  };
-  const safeKey = (key) => key.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const nowIso = () => new Date().toISOString();
-  const tsForDir = () =>
-    nowIso().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+  }
+  function safeKey(key) {
+    return key.replace(/[^a-zA-Z0-9._-]/g, '_');
+  }
+  function nowIso() {
+    return new Date().toISOString();
+  }
+  function tsForDir() {
+    return nowIso().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+  }
 
   function loadState() {
     try {
