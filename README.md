@@ -205,6 +205,10 @@ npm install dsh-security-tools     # 安全审计模式工具插件（含 bundle
 
 - 包名为无 scope 的普通 npm 包名，安装/引用/升级无特殊要求；tools 包
   bundled 载荷（107 文件）已打进包内，完整性校验在包内布局下照常通过。
+- **旧包名已废弃**：此前发布的 `@dsh.so/dsh-security-gate` 与
+  `@dsh.so/dsh-security-tools` 已在 npm 上标记 deprecated（提示 "renamed to
+  dsh-security-gate" / "renamed to dsh-security-tools"），新安装请使用上面的
+  无 scope 包名。
 - **npm 安装 ≠ 插件生效**：门禁仍需挂载进 profile（`dsh plugin --profile web add ...`），
   预设仍需放进 `~/.dsh/.agent-presets/`。对最终用户推荐上方的一键脚本。
 - 本地开发安装（离线/内网）：`.\install.ps1` / `./install.sh`；手动安装见

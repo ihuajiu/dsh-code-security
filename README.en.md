@@ -233,6 +233,10 @@ npm install dsh-security-tools     # security audit mode tool plugin (bundled pa
   requires nothing special; the tools package ships the bundled payload (107
   files) in-package, and the integrity check passes in the in-package layout as
   well.
+- **Legacy names deprecated**: the previously published `@dsh.so/dsh-security-gate`
+  and `@dsh.so/dsh-security-tools` are marked deprecated on npm (message:
+  "renamed to dsh-security-gate" / "renamed to dsh-security-tools"); install the
+  unscoped names above for new installs.
 - **npm install ≠ plugin activation**: the gate still needs to be mounted into a
   profile (`dsh plugin --profile web add ...`), and the preset still needs to go
   into `~/.dsh/.agent-presets/`. The one-line scripts are recommended for end users.
