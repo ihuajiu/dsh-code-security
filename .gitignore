@@ -10,3 +10,6 @@ Thumbs.db
 # editors
 .vscode/
 .idea/
+
+# docs (local working documents; not part of the published repository)
+docs/

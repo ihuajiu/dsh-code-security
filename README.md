@@ -142,8 +142,8 @@ config，需列全字段；改动在 DSH 重启后生效）：
 - **端点鉴权**：token + Host/Origin 校验 + 限流；报告/扫描/清除均有保护。
 - **甄别记忆**：`audit-baseline.json` 注入审计提示词，避免重复误报。
 
-安全分析详见 [`gate/README.md`](gate/README.md) 与
-[`docs/SECURITY_AUDIT_REPORT.md`](docs/SECURITY_AUDIT_REPORT.md)。
+安全分析详见 [`gate/README.md`](gate/README.md)；完整安全审计报告
+（`docs/SECURITY_AUDIT_REPORT.md`）作为本地工作文档维护，不随仓库发布。
 
 静态安全扫描结果（无 Critical / High 发现，余项均为 Info 级正常行为）：
 
@@ -183,7 +183,7 @@ openai-code-security/
 ├── plugins/dsh-security/   # 工具插件 @dsh.so/dsh-security-tools（5 个 dsh_security_*）
 ├── skills/dsh-security/    # DSH 适配入口技能
 ├── bundled/                # 上游 _bundled_plugin 拷贝（技能/references/schemas/scripts/mcp）
-├── docs/                   # 安全审计报告 / 插件推荐 / GitHub 讨论帖
+├── docs/                   # 本地工作文档（安全审计报告等，不入库，见 .gitignore）
 ├── assets/                 # README 配图（界面截图 + logo）
 ├── install.ps1 / install.sh / uninstall.*
 └── README.md / README.en.md
