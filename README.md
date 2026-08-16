@@ -137,7 +137,7 @@ config，需列全字段；改动在 DSH 重启后生效）：
 - **甄别记忆**：`audit-baseline.json` 注入审计提示词，避免重复误报。
 
 安全分析详见 [`gate/README.md`](gate/README.md) 与
-[`gate/docs/SECURITY_AUDIT_REPORT.md`](gate/docs/SECURITY_AUDIT_REPORT.md)。
+[`docs/SECURITY_AUDIT_REPORT.md`](docs/SECURITY_AUDIT_REPORT.md)。
 
 ## 卸载
 
@@ -162,14 +162,13 @@ openai-code-security/
 │   ├── client.js           #   设置页「安全审计」面板（双语）
 │   ├── cordis.patch.yml    #   bundle 补丁（dsh plugin add 自动挂载）
 │   ├── audit-baseline.json #   历轮审计甄别记忆
-│   ├── docs/               #   安全审计报告 / 插件推荐 / GitHub 讨论帖
 │   └── README.md
 ├── agent.cordis.yml        # 预设组合（standard + dsh-security 附加行）
 ├── preset.yml              # 预设元数据
 ├── plugins/dsh-security/   # 工具插件 @dsh.so/dsh-security-tools（5 个 dsh_security_*）
 ├── skills/dsh-security/    # DSH 适配入口技能
 ├── bundled/                # 上游 _bundled_plugin 拷贝（技能/references/schemas/scripts/mcp）
-├── docs/                   # 审计报告界面截图
+├── docs/                   # 安全审计报告 / 插件推荐 / GitHub 讨论帖
 ├── assets/                 # README 配图（界面截图 + logo）
 ├── install.ps1 / install.sh / uninstall.*
 └── README.md
