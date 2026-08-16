@@ -1,5 +1,5 @@
-{
-  "name": "@dsh.so/dsh-security-tools",
+﻿{
+  "name": "dsh-security-tools",
   "version": "0.1.2",
   "type": "module",
   "main": "index.js",

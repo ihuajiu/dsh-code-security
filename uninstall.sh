@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # Uninstall the openai-code-security DSH plugin project (dsh-code-security):
 #   1. dsh-security-gate — removed from EVERY profile: `dsh plugin remove` for
 #      the current scoped name plus legacy names, orphan node_modules symlinks,
@@ -12,7 +12,7 @@
 set -u
 
 dsh="${DSH_HOME:-$HOME/.dsh}"
-names='@dsh.so/dsh-security-gate dsh-security-gate openai-code-security-gate'
+names='dsh-security-gate openai-code-security-gate @dsh.so/dsh-security-gate'
 
 # node is always present (DSH runs on it) — use it for exact manifest reads.
 has_dep() { node -e 'const fs=require("fs"),j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write((j.dependencies&&j.dependencies[process.argv[2]])?"1":"0")' "$1" "$2" 2>/dev/null; }

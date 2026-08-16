@@ -3,7 +3,7 @@
 > **English | [中文](README.md)**
 
 > Product display name: **dsh-code-security**; technical identifiers: host plugin
-> `@dsh.so/dsh-security-gate`, agent preset `dsh-security`, tools `dsh_security_*`.
+> `dsh-security-gate`, agent preset `dsh-security`, tools `dsh_security_*`.
 > The repository folder keeps its historical name `openai-code-security`.
 
 Wraps OpenAI [codex-security](https://github.com/openai/codex-security) (Apache-2.0)
@@ -125,7 +125,7 @@ first):
 
 ## Configuration
 
-### Gate (`@dsh.so/dsh-security-gate`)
+### Gate (`dsh-security-gate`)
 
 For custom configuration, append an id-targeted override patch to
 `~/.dsh/profiles/web/cordis.patch.yml` (**whole config replacement** — list all
@@ -203,7 +203,7 @@ curl -fsSL https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/unin
 
 ```
 openai-code-security/
-├── gate/                   # Security gate host plugin @dsh.so/dsh-security-gate
+├── gate/                   # Security gate host plugin dsh-security-gate
 │   ├── index.js            #   zero-dependency cordis plugin
 │   ├── client.js           #   Settings "Security Audit" panel (bilingual)
 │   ├── cordis.patch.yml    #   bundle patch (auto-mounted by dsh plugin add)
@@ -211,7 +211,7 @@ openai-code-security/
 │   └── README.md
 ├── agent.cordis.yml        # preset composition (standard + dsh-security additions)
 ├── preset.yml              # preset metadata
-├── plugins/dsh-security/   # tool plugin @dsh.so/dsh-security-tools (5 dsh_security_*)
+├── plugins/dsh-security/   # tool plugin dsh-security-tools (5 dsh_security_*)
 ├── skills/dsh-security/    # DSH adapter entry skill
 ├── bundled/                # upstream _bundled_plugin copy (skills/references/schemas/scripts/mcp)
 ├── docs/                   # security audit report / plugin recommendation / GitHub discussion post
@@ -225,14 +225,14 @@ openai-code-security/
 Both components are published to npmjs (Apache-2.0):
 
 ```bash
-npm install @dsh.so/dsh-security-gate      # security gate host plugin
-npm install @dsh.so/dsh-security-tools     # security audit mode tool plugin (bundled payload included)
+npm install dsh-security-gate      # security gate host plugin
+npm install dsh-security-tools     # security audit mode tool plugin (bundled payload included)
 ```
 
-- Scoped package names (`@dsh.so/...`) are standard npm scopes — installing,
-  referencing, and upgrading requires nothing special; the tools package ships the
-  bundled payload (107 files) in-package, and the integrity check passes in the
-  in-package layout as well.
+- Plain unscoped npm package names — installing, referencing, and upgrading
+  requires nothing special; the tools package ships the bundled payload (107
+  files) in-package, and the integrity check passes in the in-package layout as
+  well.
 - **npm install ≠ plugin activation**: the gate still needs to be mounted into a
   profile (`dsh plugin --profile web add ...`), and the preset still needs to go
   into `~/.dsh/.agent-presets/`. The one-line scripts are recommended for end users.
@@ -246,7 +246,7 @@ npm install @dsh.so/dsh-security-tools     # security audit mode tool plugin (bu
   https://github.com/openai/codex-security.
 - `Codex` / `Codex Security` are OpenAI trademarks. This project's public display
   name is **dsh-code-security**, with neutral technical identifiers such as
-  `dsh-security` / `@dsh.so/dsh-security-gate`; upstream names are retained only
+  `dsh-security` / `dsh-security-gate`; upstream names are retained only
   in upstream attribution, the CLI package name (`@openai/codex-security`), and
   references inside skills.
 

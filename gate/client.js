@@ -9,7 +9,7 @@
 // bundler, no JSX. Styling is theme-aware via DSH CSS variables with
 // fallbacks so light and dark modes both look right.
 window.__ModuleLoader__.load({
-	id: "@dsh.so/dsh-security-gate",
+	id: "dsh-security-gate",
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;

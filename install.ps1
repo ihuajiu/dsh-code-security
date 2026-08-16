@@ -1,4 +1,4 @@
-# Install the openai-code-security DSH plugin project:
+﻿# Install the openai-code-security DSH plugin project:
 #   1. agent preset  -> ~/.dsh/.agent-presets/dsh-security (skills + scan tools)
 #   2. security gate -> web profile as a pnpm dependency; `dsh.bundle.patch` in
 #      gate/package.json makes `dsh plugin add` activate it as a profile bundle
@@ -64,7 +64,7 @@ Get-ChildItem $src -Force | Where-Object { $_.Name -ne 'gate' -and $_.Name -ne '
 # ── 2. security gate into the web profile ───────────────────────────────────
 $profileDir = Join-Path $dsh 'profiles\web'
 if (Test-Path (Join-Path $profileDir 'package.json')) {
-  Write-Host "Installing @dsh.so/dsh-security-gate into profile $profileDir" -ForegroundColor Cyan
+  Write-Host "Installing dsh-security-gate into profile $profileDir" -ForegroundColor Cyan
   Push-Location $profileDir
   try {
     & 'dsh' plugin --profile web add (Join-Path $src 'gate')

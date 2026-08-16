@@ -19,7 +19,7 @@
 //
 // Install: `dsh plugin --profile <name> add <this directory>` — the
 // `dsh.bundle.patch` declaration makes `dsh plugin add` append this package
-// (`@dsh.so/dsh-security-gate`) to the profile's bundle layer automatically;
+// (`dsh-security-gate`) to the profile's bundle layer automatically;
 // no manual cordis.patch.yml row is needed.
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';

@@ -11,7 +11,7 @@
 $ErrorActionPreference = 'Continue'
 
 $dsh = Join-Path $env:USERPROFILE '.dsh'
-$names = @('@dsh.so/dsh-security-gate', 'dsh-security-gate', 'openai-code-security-gate')
+$names = @('dsh-security-gate', 'openai-code-security-gate', '@dsh.so/dsh-security-gate')
 
 # ── 1. gate plugin from every profile ───────────────────────────────────────
 $profilesDir = Join-Path $dsh 'profiles'

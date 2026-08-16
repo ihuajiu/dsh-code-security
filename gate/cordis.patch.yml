@@ -2,7 +2,7 @@
 #
 # `package.json` declares `dsh.bundle.patch: ./cordis.patch.yml`, so
 # `dsh plugin --profile <name> add <this-directory>` installs the package into
-# the profile AND appends `@dsh.so/dsh-security-gate` to the profile's
+# the profile AND appends `dsh-security-gate` to the profile's
 # `dsh.profile.bundles` layer stack; this patch then inserts the plugin row.
 # No manual `cordis.patch.yml` row is needed.
 #
@@ -19,4 +19,4 @@
 #       sandboxMode: danger-full-access
 - insert:
     - id: dsh-security-gate
-      name: '@dsh.so/dsh-security-gate'
+      name: 'dsh-security-gate'

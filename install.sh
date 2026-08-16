@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # Install the openai-code-security DSH plugin project:
 #   1. agent preset  -> ~/.dsh/.agent-presets/dsh-security (skills + scan tools)
 #   2. security gate -> <profile> as a pnpm dependency; `dsh.bundle.patch` in
@@ -86,7 +86,7 @@ done
 # ── 2. security gate into the profile ───────────────────────────────────────
 profile_dir="$dsh/profiles/$profile"
 if [ -f "$profile_dir/package.json" ]; then
-  echo "Installing @dsh.so/dsh-security-gate into profile $profile_dir"
+  echo "Installing dsh-security-gate into profile $profile_dir"
   (cd "$profile_dir" && dsh plugin --profile "$profile" add "$src/gate")
   patch="$profile_dir/cordis.patch.yml"
   # Since gate/package.json declares `dsh.bundle.patch`, `dsh plugin add` above

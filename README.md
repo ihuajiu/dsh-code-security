@@ -2,7 +2,7 @@
 
 > **[English](README.en.md) | 中文**
 
-> 产品展示名：**dsh-code-security**；技术标识：宿主插件 `@dsh.so/dsh-security-gate`、
+> 产品展示名：**dsh-code-security**；技术标识：宿主插件 `dsh-security-gate`、
 > agent preset `dsh-security`、工具 `dsh_security_*`。仓库目录名沿用
 > `openai-code-security`（历史来源）。
 
@@ -106,7 +106,7 @@ curl -fsSL https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/inst
 
 ## 配置
 
-### 门禁（`@dsh.so/dsh-security-gate`）
+### 门禁（`dsh-security-gate`）
 
 自定义配置用 id 覆盖补丁追加到 `~/.dsh/profiles/web/cordis.patch.yml`（**整体替换**
 config，需列全字段；改动在 DSH 重启后生效）：
@@ -177,7 +177,7 @@ curl -fsSL https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/unin
 
 ```
 openai-code-security/
-├── gate/                   # 安全门禁宿主插件 @dsh.so/dsh-security-gate
+├── gate/                   # 安全门禁宿主插件 dsh-security-gate
 │   ├── index.js            #   零依赖 cordis 插件
 │   ├── client.js           #   设置页「安全审计」面板（双语）
 │   ├── cordis.patch.yml    #   bundle 补丁（dsh plugin add 自动挂载）
@@ -185,7 +185,7 @@ openai-code-security/
 │   └── README.md
 ├── agent.cordis.yml        # 预设组合（standard + dsh-security 附加行）
 ├── preset.yml              # 预设元数据
-├── plugins/dsh-security/   # 工具插件 @dsh.so/dsh-security-tools（5 个 dsh_security_*）
+├── plugins/dsh-security/   # 工具插件 dsh-security-tools（5 个 dsh_security_*）
 ├── skills/dsh-security/    # DSH 适配入口技能
 ├── bundled/                # 上游 _bundled_plugin 拷贝（技能/references/schemas/scripts/mcp）
 ├── docs/                   # 本地工作文档（安全审计报告等，不入库，见 .gitignore）
@@ -199,11 +199,11 @@ openai-code-security/
 两个组件已发布到 npmjs（Apache-2.0）：
 
 ```bash
-npm install @dsh.so/dsh-security-gate      # 安全门禁宿主插件
-npm install @dsh.so/dsh-security-tools     # 安全审计模式工具插件（含 bundled 载荷）
+npm install dsh-security-gate      # 安全门禁宿主插件
+npm install dsh-security-tools     # 安全审计模式工具插件（含 bundled 载荷）
 ```
 
-- scoped 包名（`@dsh.so/...`）是 npm 标准作用域，安装/引用/升级无特殊要求；tools 包
+- 包名为无 scope 的普通 npm 包名，安装/引用/升级无特殊要求；tools 包
   bundled 载荷（107 文件）已打进包内，完整性校验在包内布局下照常通过。
 - **npm 安装 ≠ 插件生效**：门禁仍需挂载进 profile（`dsh plugin --profile web add ...`），
   预设仍需放进 `~/.dsh/.agent-presets/`。对最终用户推荐上方的一键脚本。
@@ -216,7 +216,7 @@ npm install @dsh.so/dsh-security-tools     # 安全审计模式工具插件（�
 - `bundled/` 内容版权归 OpenAI，许可证 Apache-2.0，来源：
   https://github.com/openai/codex-security。
 - `Codex` / `Codex Security` 为 OpenAI 商标。本项目对外展示名为 **dsh-code-security**，
-  技术标识为 `dsh-security` / `@dsh.so/dsh-security-gate` 等中性名称，仅在上游归属、
+  技术标识为 `dsh-security` / `dsh-security-gate` 等中性名称，仅在上游归属、
   CLI 包名（`@openai/codex-security`）与技能内引用中保留上游原名。
 
 ---
