@@ -30,6 +30,32 @@ DSH 宿主门禁插件：**新插件安装时自动用本会话的大模型审�
 零依赖（仅 Node 内置模块 + 一个手写 client bundle）；消费宿主服务时全部
 `ctx.get()` 防御式访问，`apply()` 不抛错。
 
+### 界面预览
+
+设置 →「安全审计」面板（主界面 / 报告摘要 / 风险详情 / 安全审计模式会话）：
+
+<p align="center">
+  <img src="../assets/安全审计主界面.jpg" alt="安全审计主界面" width="700"><br>
+  <em>面板主界面：每插件审计状态、一键重审、打开报告</em>
+</p>
+
+<p align="center">
+  <img src="../assets/安全审计-审计报告摘要.jpg" alt="审计报告摘要" width="700"><br>
+  <em>报告摘要：严重度计数表前置（中英双语，可复制）</em>
+</p>
+
+<p align="center">
+  <img src="../assets/安全审计-风险审计详情.jpg" alt="风险审计详情" width="700"><br>
+  <em>风险审计详情：威胁模型 + 逐条发现（AI 生成，仅供参考）</em>
+</p>
+
+<p align="center">
+  <img src="../assets/安全审计-安全审计模式.jpg" alt="安全审计模式" width="700"><br>
+  <em>「安全审计模式」会话：安全工作流技能 + 扫描工具</em>
+</p>
+
+完整审计报告界面截图见 [`../docs/`](../docs/)。
+
 ## 安装
 
 ```powershell

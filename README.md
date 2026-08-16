@@ -71,6 +71,11 @@ curl -fsSL https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/inst
 | `dsh_security_cli` | 其它 CLI 子命令透传（白名单；`login`/`export` 默认排除） |
 | `dsh_security_resources` | 返回 bundled 载荷路径 + 完整性校验结果 |
 
+<p align="center">
+  <img src="assets/安全审计-安全审计模式.jpg" alt="安全审计模式" width="720">
+  <br><em>「安全审计模式」会话：13 个安全工作流技能 + 5 个扫描工具</em>
+</p>
+
 ### 方式二：门禁自动审计（进程级）
 
 - **自动审计**：轮询发现新预设/新插件 → 有界采集源码 → 宿主模型审计（免认证），
@@ -79,6 +84,19 @@ curl -fsSL https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/inst
 - **GUI**：设置 →「安全审计」面板（状态/报告/一键重审；中英双语跟随系统语言）。
 - **甄别记忆**：历轮审计的误报/设计项/已修复项记入基线（`audit-baseline.json`），
   每次审计注入提示词，模型不重复报告已知项 —— 显著降低误报率。
+
+<p align="center">
+  <img src="assets/安全审计主界面.jpg" alt="安全审计主界面" width="720">
+  <br><em>设置 →「安全审计」面板：每插件审计状态、一键重审、打开报告</em>
+</p>
+
+审计报告在面板内联展示（双语、可复制、摘要表前置）：
+
+<p align="center">
+  <img src="assets/安全审计-审计报告摘要.jpg" alt="审计报告摘要" width="720">
+  <img src="assets/安全审计-风险审计详情.jpg" alt="风险审计详情" width="720">
+  <br><em>报告摘要表 + 风险审计详情（AI 生成，仅供参考）</em>
+</p>
 
 ## 配置
 
@@ -118,7 +136,8 @@ config，需列全字段；改动在 DSH 重启后生效）：
 - **端点鉴权**：token + Host/Origin 校验 + 限流；报告/扫描/清除均有保护。
 - **甄别记忆**：`audit-baseline.json` 注入审计提示词，避免重复误报。
 
-安全分析详见 [`gate/README.md`](gate/README.md) 与 `SECURITY_AUDIT_REPORT.md`。
+安全分析详见 [`gate/README.md`](gate/README.md) 与
+[`gate/docs/SECURITY_AUDIT_REPORT.md`](gate/docs/SECURITY_AUDIT_REPORT.md)。
 
 ## 卸载
 
@@ -143,12 +162,15 @@ openai-code-security/
 │   ├── client.js           #   设置页「安全审计」面板（双语）
 │   ├── cordis.patch.yml    #   bundle 补丁（dsh plugin add 自动挂载）
 │   ├── audit-baseline.json #   历轮审计甄别记忆
+│   ├── docs/               #   安全审计报告 / 插件推荐 / GitHub 讨论帖
 │   └── README.md
 ├── agent.cordis.yml        # 预设组合（standard + dsh-security 附加行）
 ├── preset.yml              # 预设元数据
 ├── plugins/dsh-security/   # 工具插件 @dsh.so/dsh-security-tools（5 个 dsh_security_*）
 ├── skills/dsh-security/    # DSH 适配入口技能
 ├── bundled/                # 上游 _bundled_plugin 拷贝（技能/references/schemas/scripts/mcp）
+├── docs/                   # 审计报告界面截图
+├── assets/                 # README 配图（界面截图 + logo）
 ├── install.ps1 / install.sh / uninstall.*
 └── README.md
 ```
