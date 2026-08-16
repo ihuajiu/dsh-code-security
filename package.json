@@ -1,0 +1,32 @@
+{
+  "name": "dsh-code-security",
+  "version": "0.1.3",
+  "description": "DeepSeek Harness (DSH) security plugin project: auto-audits newly installed plugins with the host model (dsh-security-gate) and provides a security-audit agent preset with Codex Security workflow skills and scan tools (dsh-security-tools).",
+  "license": "Apache-2.0",
+  "private": true,
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "security",
+    "audit",
+    "codex-security"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ihuajiu/dsh-code-security.git"
+  },
+  "homepage": "https://github.com/ihuajiu/dsh-code-security",
+  "bugs": {
+    "url": "https://github.com/ihuajiu/dsh-code-security/issues"
+  },
+  "dsh": {
+    "compatible": true,
+    "components": {
+      "gate": "@dsh.so/dsh-security-gate",
+      "tools": "@dsh.so/dsh-security-tools"
+    },
+    "preset": "dsh-security"
+  }
+}
