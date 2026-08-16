@@ -171,8 +171,16 @@ excludes `login`/`export` by default and can be extended via the
 - **Triage memory**: `audit-baseline.json` is injected into audit prompts to avoid
   repeated false positives.
 
-Security analysis: see [`gate/README.md`](gate/README.md) (in Chinese) and
-[`docs/SECURITY_AUDIT_REPORT.md`](docs/SECURITY_AUDIT_REPORT.md) (in Chinese).
+Security analysis: see [`gate/README.md`](gate/README.md) (in Chinese). The full
+audit report (`docs/SECURITY_AUDIT_REPORT.md`) is maintained as a local working
+document and is not shipped with the repository.
+
+**Related project**: [dsh-sandbox-audit](https://github.com/zoahdev/dsh-sandbox-audit)
+— a static, deterministic, no-LLM sandbox-policy consistency audit (reads
+`cordis.patch.yml` / profile config and checks whether each tool's sandbox wiring
+actually enforces the policy it claims). Complementary to this project: it verifies
+"does the configured policy actually wire up" (fail = don't ship), while we review
+"is the plugin source risky" (flag = human review).
 
 ## Uninstall
 

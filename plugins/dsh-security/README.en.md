@@ -1,4 +1,4 @@
-# dsh-code-security (Security Audit Plugin)
+﻿# dsh-code-security (Security Audit Plugin)
 
 > **English | [中文](README.md)**
 
@@ -142,8 +142,7 @@ fields; changes take effect after a DSH restart):
 
 Common fields: `engine`, `provider`/`model`, `intervalMs`, `ignorePrefixes`,
 `cliCommand`, `maxHarvestChars`, `maxParallel`, `scanRateLimit`. See
-[`gate/README.md`](https://github.com/ihuajiu/dsh-code-security/blob/main/gate/README.md)
-(in Chinese) for the full configuration table.
+[`gate/README.md`](https://github.com/ihuajiu/dsh-code-security/blob/main/gate/README.md) (in Chinese) for the full configuration table.
 
 > ⚠️ `engine: 'cli'` requires an explicit `sandboxMode` config (on Windows:
 > `danger-full-access`, i.e. unrestricted execution — the gate emits a loud warning
@@ -172,11 +171,16 @@ excludes `login`/`export` by default and can be extended via the
 - **Triage memory**: `audit-baseline.json` is injected into audit prompts to avoid
   repeated false positives.
 
-Security analysis: see
-[`gate/README.md`](https://github.com/ihuajiu/dsh-code-security/blob/main/gate/README.md)
-(in Chinese) and
-[`docs/SECURITY_AUDIT_REPORT.md`](https://github.com/ihuajiu/dsh-code-security/blob/main/docs/SECURITY_AUDIT_REPORT.md)
-(in Chinese).
+Security analysis: see [`gate/README.md`](https://github.com/ihuajiu/dsh-code-security/blob/main/gate/README.md) (in Chinese). The full
+audit report (`docs/SECURITY_AUDIT_REPORT.md`) is maintained as a local working
+document and is not shipped with the repository.
+
+**Related project**: [dsh-sandbox-audit](https://github.com/zoahdev/dsh-sandbox-audit)
+— a static, deterministic, no-LLM sandbox-policy consistency audit (reads
+`cordis.patch.yml` / profile config and checks whether each tool's sandbox wiring
+actually enforces the policy it claims). Complementary to this project: it verifies
+"does the configured policy actually wire up" (fail = don't ship), while we review
+"is the plugin source risky" (flag = human review).
 
 ## Uninstall
 
@@ -233,9 +237,7 @@ npm install @dsh.so/dsh-security-tools     # security audit mode tool plugin (bu
   profile (`dsh plugin --profile web add ...`), and the preset still needs to go
   into `~/.dsh/.agent-presets/`. The one-line scripts are recommended for end users.
 - Local development install (offline/intranet): `.\install.ps1` / `./install.sh`;
-  manual installation: see
-  [`gate/README.md`](https://github.com/ihuajiu/dsh-code-security/blob/main/gate/README.md)
-  (in Chinese).
+  manual installation: see [`gate/README.md`](https://github.com/ihuajiu/dsh-code-security/blob/main/gate/README.md) (in Chinese).
 
 ## License & Naming
 
