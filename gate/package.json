@@ -1,6 +1,6 @@
 {
   "name": "@dsh.so/dsh-security-gate",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "main": "index.js",
   "description": "DSH host plugin: auto-audits newly installed plugins (presets and profile packages) with the harness's own model, exposes batch audit tools, and renders an audit panel in Settings.",
@@ -25,6 +25,7 @@
     "client.js",
     "cordis.patch.yml",
     "audit-baseline.json",
+    "assets",
     "README.md"
   ],
   "exports": {

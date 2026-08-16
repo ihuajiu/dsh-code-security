@@ -1,6 +1,6 @@
 {
   "name": "@dsh.so/dsh-security-tools",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "main": "index.js",
   "description": "DSH agent-preset plugin wrapping the @openai/codex-security CLI: security scan, findings, and scan-comparison tools, plus the bundled Codex Security workflow payload (integrity-verified).",
@@ -24,6 +24,7 @@
   "files": [
     "index.js",
     "bundled",
+    "assets",
     "README.md"
   ],
   "exports": {
