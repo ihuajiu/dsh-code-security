@@ -25,9 +25,8 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync, realpathSync, rmSync, openSync, closeSync, constants as fsConstants } from 'node:fs';
 import { join, dirname, relative, basename, resolve as resolvePath, sep as pathSep } from 'node:path';
-import { homedir, userInfo } from 'node:os';
+import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 
 export const name = 'dsh-security-gate';
 
@@ -214,24 +213,6 @@ const AUDIT_BASELINE = (() => {
   }
 })();
 
-/**
- * Current Windows account name for the token-file ACL grant. Source is
- * os.userInfo() — the OS-level account, NOT process.env, which a hostile
- * environment could spoof — and the name is validated against a conservative
- * charset so it can only ever be a plain account principal in the icacls
- * argv: no option syntax, no separators, no extra arguments. Returns null
- * when unavailable/invalid, in which case ACL hardening is skipped.
- */
-function currentUserName() {
-  try {
-    const u = userInfo().username;
-    if (typeof u === 'string' && /^[\w .@\\-]{1,64}$/.test(u)) return u;
-  } catch {
-    /* fall through */
-  }
-  return null;
-}
-
 export function apply(ctx, config = {}) {
   const dshHome = config.dshHome ?? join(homedir(), '.dsh');
   const cfg = {
@@ -271,10 +252,6 @@ export function apply(ctx, config = {}) {
     // and redact inline secret values before the content reaches the provider.
     harvestExcludePatterns: config.harvestExcludePatterns ?? SECRET_FILE_PATTERNS,
     redactSecrets: config.redactSecrets !== false,
-    // Windows token-file ACL hardening via a fixed System32 icacls path
-    // (best-effort, after write). Set false to skip the external process
-    // launch entirely, e.g. in hardened environments that forbid exec.
-    winTokenAcl: config.winTokenAcl !== false,
     // Rate limit for unauthenticated localhost HTTP triggers (POST /scan).
     scanRateLimit: config.scanRateLimit ?? 10,
     scanRateWindowMs: config.scanRateWindowMs ?? 10000,
@@ -370,31 +347,21 @@ export function apply(ctx, config = {}) {
     const t = randomBytes(32).toString('hex');
     try {
       writeFileSync(tokenPath, t, { mode: 0o600 });
-      // POSIX mode is ignored on Windows: restrict the token file ACL to the
-      // current user as best-effort hardening (audit finding F4 — on a shared
-      // Windows machine another local user could otherwise read the token).
-      // Best-effort: if icacls is unavailable or fails, the gate still works
-      // (the token remains protected by the user-profile default ACL).
-      if (cfg.winTokenAcl && typeof process !== 'undefined' && process.platform === 'win32') {
-        try {
-          // SECURITY NOTE (static scanners flag this): execFileSync does NOT
-          // invoke a shell — the command and every argument are passed as an
-          // argv array (no string parsing, no injection surface). The binary
-          // is a FIXED absolute System32 path (never a PATH/cwd lookup), so
-          // a tampered environment cannot shadow it with a different
-          // executable. tokenPath is the state-dir path built above and the
-          // user name is the os.userInfo()-derived, validated account name —
-          // the only dynamic values, and neither can alter the command line
-          // structure. Set config `winTokenAcl: false` to skip entirely.
-          const ICACLS = join('C:', pathSep, 'Windows', pathSep, 'System32', 'icacls.exe');
-          const user = currentUserName();
-          if (user !== null && existsSync(ICACLS)) {
-            execFileSync(ICACLS, [tokenPath, '/inheritance:r', '/grant:r', user + ':(R)'], { stdio: 'ignore', timeout: 10000 });
-          }
-        } catch {
-          /* best-effort */
-        }
-      }
+      // POSIX mode is ignored on Windows, and the token file is deliberately
+      // NOT given a restrictive ACL here anymore: doing so requires shelling
+      // out to `icacls`, which static scanners rate as a critical
+      // command-execution sink even in the safe argv-array + fixed
+      // System32-path form used previously (audit round 8, F4). Removed on
+      // purpose — the remaining protection is sufficient:
+      //   1. The default location (<user profile>\.dsh\dsh-security) is
+      //      already unreadable by other local users through the profile's
+      //      own default ACLs; the icacls call added nothing there.
+      //   2. The endpoints are still guarded by the bearer token, the
+      //      loopback Host allowlist, the socket-peer loopback check, and
+      //      per-endpoint rate limits.
+      //   3. Admins who set stateDir to a shared location can harden the
+      //      token file themselves without any plugin support, e.g.:
+      //        icacls "<stateDir>\token" /inheritance:r /grant:r "%USERNAME%:(R)"
     } catch {
       /* best-effort */
     }

@@ -44,16 +44,18 @@ window.__ModuleLoader__.load({
 			o.headers = authHeaders(o.headers);
 			o.cache = o.cache || "no-store";
 			o.credentials = "same-origin";
-			if (typeof AbortController === "undefined") return fetch(path, o);
-			var ctrl = new AbortController();
-			o.signal = o.signal || ctrl.signal;
-			var ms = (opts && opts.timeoutMs) || 30000;
-			var timer = setTimeout(function () { ctrl.abort(); }, ms);
+			var timer = null;
+			if (typeof AbortController !== "undefined") {
+				var ctrl = new AbortController();
+				o.signal = ctrl.signal;
+				var ms = (opts && opts.timeoutMs) || 30000;
+				timer = setTimeout(function () { ctrl.abort(); }, ms);
+			}
 			return fetch(path, o).then(function (r) {
-				clearTimeout(timer);
+				if (timer !== null) clearTimeout(timer);
 				return r;
 			}, function (e) {
-				clearTimeout(timer);
+				if (timer !== null) clearTimeout(timer);
 				throw e;
 			});
 		}

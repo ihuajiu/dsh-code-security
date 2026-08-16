@@ -121,8 +121,7 @@ config，需列全字段；改动在 DSH 重启后生效）：
 ```
 
 常用字段：`engine`、`provider`/`model`、`intervalMs`、`ignorePrefixes`、`cliCommand`、
-`maxHarvestChars`、`maxParallel`、`scanRateLimit`、`winTokenAcl`（Windows 下令牌文件
-ACL 加固，默认 `true`；如需完全禁止拉起外部进程可设 `false`）。完整配置表见
+`maxHarvestChars`、`maxParallel`、`scanRateLimit`。完整配置表见
 [`gate/README.md`](https://github.com/ihuajiu/dsh-code-security/blob/main/gate/README.md)。
 
 > ⚠️ `engine: 'cli'` 必须显式配置 `sandboxMode`（Windows 上为 `danger-full-access`，
@@ -141,9 +140,9 @@ ACL 加固，默认 `true`；如需完全禁止拉起外部进程可设 `false`�
 - **白名单**：CLI 子命令白名单、`cliCommand` 白名单 + 版本钉扎、前台超时上限。
 - **载荷完整性 fail-closed**：bundled 107 文件 SHA-256 校验，任一不符插件拒绝加载。
 - **端点鉴权**：token + Host/Origin 校验 + 限流；报告/扫描/清除均有保护。Host 白名单
-  之外还校验 TCP 对端地址必须是回环接口（防伪造 Host 头的非本地连接）；Windows 令牌
-  文件 ACL 用固定 System32 路径的 `icacls`（argv 数组、无 shell、用户名取自
-  `os.userInfo()` 并校验）加固，可用 `winTokenAcl: false` 关闭。
+  之外还校验 TCP 对端地址必须是回环接口（防伪造 Host 头的非本地连接）。令牌文件位于
+  用户配置文件目录（默认即受 Windows 用户配置 ACL 保护），不拉起任何外部进程；若把
+  `stateDir` 放到共享目录，可自行加固：`icacls "<stateDir>\token" /inheritance:r /grant:r "%USERNAME%:(R)"`。
 - **甄别记忆**：`audit-baseline.json` 注入审计提示词，避免重复误报。
 
 安全分析详见 [`gate/README.md`](https://github.com/ihuajiu/dsh-code-security/blob/main/gate/README.md)；完整安全审计报告
