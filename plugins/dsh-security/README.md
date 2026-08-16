@@ -1,5 +1,7 @@
 ﻿# dsh-code-security（安全审计插件）
 
+> **[English](README.en.md) | 中文**
+
 > 产品展示名：**dsh-code-security**；技术标识：宿主插件 `@dsh.so/dsh-security-gate`、
 > agent preset `dsh-security`、工具 `dsh_security_*`。仓库目录名沿用
 > `openai-code-security`（历史来源）。
@@ -143,6 +145,13 @@ config，需列全字段；改动在 DSH 重启后生效）：
 安全分析详见 [`gate/README.md`](https://github.com/ihuajiu/dsh-code-security/blob/main/gate/README.md) 与
 [`docs/SECURITY_AUDIT_REPORT.md`](https://github.com/ihuajiu/dsh-code-security/blob/main/docs/SECURITY_AUDIT_REPORT.md)。
 
+静态安全扫描结果（无 Critical / High 发现，余项均为 Info 级正常行为）：
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/assets/dsh.so-static-security-audit-result-20260816-133339.jpg" alt="dsh.so 静态安全扫描结果" width="720">
+  <br><em>静态安全扫描结果（启发式标记，非安全审计；详见上文甄别）</em>
+</p>
+
 ## 卸载
 
 **一条命令**（清预设 + 门禁 + 状态/缓存，幂等可重跑）：
@@ -177,7 +186,7 @@ openai-code-security/
 ├── docs/                   # 安全审计报告 / 插件推荐 / GitHub 讨论帖
 ├── assets/                 # README 配图（界面截图 + logo）
 ├── install.ps1 / install.sh / uninstall.*
-└── README.md
+└── README.md / README.en.md
 ```
 
 ## 开发与发布

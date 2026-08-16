@@ -26,7 +26,8 @@
     "cordis.patch.yml",
     "audit-baseline.json",
     "assets",
-    "README.md"
+    "README.md",
+    "README.en.md"
   ],
   "exports": {
     ".": "./index.js",

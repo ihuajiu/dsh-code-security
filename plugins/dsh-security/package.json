@@ -25,7 +25,8 @@
     "index.js",
     "bundled",
     "assets",
-    "README.md"
+    "README.md",
+    "README.en.md"
   ],
   "exports": {
     ".": "./index.js",
