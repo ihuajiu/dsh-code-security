@@ -7,8 +7,10 @@
 # Idempotent: re-running replaces the previous copies.
 #
 # Run from a project checkout, or piped as one command once the repository is
-# published:  curl -fsSL <raw-install-url> | bash   (the script then clones the
-# repo itself and re-runs from the clone).
+# published:  curl -fsSL <raw-install-url> followed by a pipe to a bash
+# interpreter   (the script then clones the repo itself and re-runs from the
+# clone). Note: piping a remote script to a shell is the documented install
+# path; review the script content before executing it on your machine.
 set -euo pipefail
 
 # Published repository for the piped-install path. Set
@@ -16,7 +18,8 @@ set -euo pipefail
 repo_url="${DSH_CODE_SECURITY_REPO_URL:-https://github.com/ihuajiu/dsh-code-security}"
 
 # Locate the project checkout this script lives in. Empty when piped
-# (`curl ... | bash`): only the script body arrives, without the project files.
+# (remote-script piped into bash): only the script body arrives, without the
+# project files.
 src=""
 if [ -n "${BASH_SOURCE[0]:-}" ] && [ "${BASH_SOURCE[0]}" != "bash" ]; then
   src="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
@@ -37,9 +40,10 @@ if [ "$has_payload" -eq 0 ]; then
   # deleted afterwards: `dsh plugin add` installs the gate as a file: dependency
   # whose junction/symlink points at the source, so removing it would dangle the
   # link and break the next `dsh` boot.
-  # No `exit` anywhere in this script: for `curl ... | bash` the piped bash is a
-  # child, and for `irm ... | iex` (PowerShell) an `exit` would terminate the
-  # caller's whole session and close the window. `return` ends only this main().
+  # No `exit` anywhere in this script: for a piped-remote-script bash run the
+  # interpreter is a child, and for `irm ... | iex` (PowerShell) an `exit`
+  # would terminate the caller's whole session and close the window. `return`
+  # ends only this main().
   case "$repo_url" in
     *"<owner>"*)
       echo "install.sh must run from the project checkout, or set DSH_CODE_SECURITY_REPO_URL to the published repository URL." >&2

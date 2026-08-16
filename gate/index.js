@@ -355,6 +355,11 @@ export function apply(ctx, config = {}) {
       // (the token remains protected by the user-profile default ACL).
       if (typeof process !== 'undefined' && process.platform === 'win32') {
         try {
+          // SECURITY NOTE (static scanners flag this): execFileSync does NOT
+          // invoke a shell — the command and every argument are passed as an
+          // argv array (no string parsing, no injection surface). `icacls` is
+          // a fixed Windows binary name; tokenPath and USERNAME are the only
+          // dynamic values and cannot alter the command line structure.
           const user = process.env.USERNAME;
           if (user) {
             execFileSync('icacls', [tokenPath, '/inheritance:r', '/grant:r', user + ':(R)'], { stdio: 'ignore', timeout: 10000 });

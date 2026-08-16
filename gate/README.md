@@ -32,6 +32,10 @@ irm https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/install.ps1
 curl -fsSL https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/install.sh | bash
 ```
 
+> 🔒 **安全说明**：远程脚本经管道交给 shell 执行是这类一键安装的标准方式（nvm、rustup 等
+> 同样如此）。安装器会克隆仓库到本地缓存后运行，**不会以 root 执行、不请求提权**；如不放心，
+> 可先 `curl -fsSL <上面的地址> -o install.sh` 下载后人工审阅，再 `bash install.sh`。
+
 脚本自动：下载项目到持久缓存（`~/.dsh/cache/dsh-code-security`）、安装
 「安全审计模式」预设、把「安全审计门禁」挂载进 web profile。**幂等**，重复执行安全；
 旧版本遗留的手动配置行会自动迁移。
@@ -152,6 +156,8 @@ irm https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/uninstall.p
 # macOS / Linux
 curl -fsSL https://raw.githubusercontent.com/ihuajiu/dsh-code-security/main/uninstall.sh | bash
 ```
+
+> 🔒 与安装相同，可先下载审阅再执行：`curl -fsSL <上面的地址> -o uninstall.sh && bash uninstall.sh`。
 
 ## 项目结构
 

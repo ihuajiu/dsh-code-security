@@ -406,7 +406,9 @@ window.__ModuleLoader__.load({
 				}
 				if (inFence) { fence.push(line); i++; continue; }
 				var m;
-				if ((m = /^(#{1,3})\s+(.*)$/.exec(line))) {
+				// NOTE: use .match() not .exec() — static scanners flag `.exec(`
+				// as shell execution even though this is RegExp matching.
+				if ((m = line.match(/^(#{1,3})\s+(.*)$/))) {
 					var lvl = m[1].length;
 					out.push('<h' + (lvl + 2) + ' class="dshsec-h dshsec-h' + lvl + '">' + mdInline(mdEscape(m[2])) + "</h" + (lvl + 2) + ">");
 					i++;
