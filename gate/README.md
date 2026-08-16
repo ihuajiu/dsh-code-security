@@ -1,4 +1,4 @@
-﻿# dsh-code-security（安全审计插件）
+# dsh-code-security（安全审计插件）
 
 > **[English](README.en.md) | 中文**
 
@@ -121,7 +121,8 @@ config，需列全字段；改动在 DSH 重启后生效）：
 ```
 
 常用字段：`engine`、`provider`/`model`、`intervalMs`、`ignorePrefixes`、`cliCommand`、
-`maxHarvestChars`、`maxParallel`、`scanRateLimit`。完整配置表见
+`maxHarvestChars`、`maxParallel`、`scanRateLimit`、`winTokenAcl`（Windows 下令牌文件
+ACL 加固，默认 `true`；如需完全禁止拉起外部进程可设 `false`）。完整配置表见
 [`gate/README.md`](https://github.com/ihuajiu/dsh-code-security/blob/main/gate/README.md)。
 
 > ⚠️ `engine: 'cli'` 必须显式配置 `sandboxMode`（Windows 上为 `danger-full-access`，
@@ -139,7 +140,10 @@ config，需列全字段；改动在 DSH 重启后生效）：
 - **参数安全**：shell 字面量转义（无注入）；路径收敛到工作目录（越界报错）。
 - **白名单**：CLI 子命令白名单、`cliCommand` 白名单 + 版本钉扎、前台超时上限。
 - **载荷完整性 fail-closed**：bundled 107 文件 SHA-256 校验，任一不符插件拒绝加载。
-- **端点鉴权**：token + Host/Origin 校验 + 限流；报告/扫描/清除均有保护。
+- **端点鉴权**：token + Host/Origin 校验 + 限流；报告/扫描/清除均有保护。Host 白名单
+  之外还校验 TCP 对端地址必须是回环接口（防伪造 Host 头的非本地连接）；Windows 令牌
+  文件 ACL 用固定 System32 路径的 `icacls`（argv 数组、无 shell、用户名取自
+  `os.userInfo()` 并校验）加固，可用 `winTokenAcl: false` 关闭。
 - **甄别记忆**：`audit-baseline.json` 注入审计提示词，避免重复误报。
 
 安全分析详见 [`gate/README.md`](https://github.com/ihuajiu/dsh-code-security/blob/main/gate/README.md)；完整安全审计报告

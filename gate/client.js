@@ -32,6 +32,32 @@ window.__ModuleLoader__.load({
 			return h;
 		}
 
+		// Single network access point for the panel. Every request is a
+		// SAME-ORIGIN relative URL against the local dsh web server (never
+		// cross-origin), carries the endpoint token, disables HTTP caching
+		// for status reads, and is bounded by an AbortController timeout so
+		// a hung or missing gate can never leave the panel stuck in
+		// "loading…" forever. Static scanners flag `fetch` — this is the
+		// ONLY place in the bundle that performs network I/O, by design.
+		function apiFetch(path, opts) {
+			var o = Object.assign({}, opts || {});
+			o.headers = authHeaders(o.headers);
+			o.cache = o.cache || "no-store";
+			o.credentials = "same-origin";
+			if (typeof AbortController === "undefined") return fetch(path, o);
+			var ctrl = new AbortController();
+			o.signal = o.signal || ctrl.signal;
+			var ms = (opts && opts.timeoutMs) || 30000;
+			var timer = setTimeout(function () { ctrl.abort(); }, ms);
+			return fetch(path, o).then(function (r) {
+				clearTimeout(timer);
+				return r;
+			}, function (e) {
+				clearTimeout(timer);
+				throw e;
+			});
+		}
+
 		// ── i18n ───────────────────────────────────────────────────────────────
 		// Follows the platform locale service (ctx.locale): the panel UI is
 		// bilingual and switches with the user's settings language. The report
@@ -625,7 +651,7 @@ window.__ModuleLoader__.load({
 			var refresh = useCallback(function () {
 				setLoading(true);
 				setError(null);
-				fetch(STATUS_URL, { headers: authHeaders() })
+				apiFetch(STATUS_URL, { timeoutMs: 15000 })
 					.then(function (r) {
 						var ct = "";
 						if (r.headers && r.headers.get) ct = String(r.headers.get("content-type") || "");
@@ -666,7 +692,7 @@ window.__ModuleLoader__.load({
 			var openReport = useCallback(function (key, dir) {
 				if (open && open.key === key) { setOpen(null); return; }
 				setOpen({ key: key, text: null });
-				fetch(REPORT_URL + encodeURIComponent(dir), { headers: authHeaders() })
+				apiFetch(REPORT_URL + encodeURIComponent(dir), { timeoutMs: 20000 })
 					.then(function (r) {
 						if (r.status === 403) throw new Error(tr(lang, "state.error.403"));
 						if (!r.ok) throw new Error("HTTP " + r.status);
@@ -703,9 +729,10 @@ window.__ModuleLoader__.load({
 				var list = Array.isArray(keys) ? keys : [keys];
 				var marker = list.length === 1 ? list[0] : "__all__";
 				setBusy(marker);
-				fetch(SCAN_URL, {
+				apiFetch(SCAN_URL, {
 					method: "POST",
-					headers: authHeaders({ "content-type": "application/json" }),
+					timeoutMs: 60000,
+					headers: { "content-type": "application/json" },
 					body: JSON.stringify({ plugins: list }),
 				})
 					.then(function (r) { return r.json(); })
@@ -723,9 +750,10 @@ window.__ModuleLoader__.load({
 			var clearRecords = useCallback(function (keys, all) {
 				var label = all ? tr(lang, "confirm.clearAll") : tr(lang, "confirm.clearOne");
 				if (!window.confirm(tr(lang, "confirm.clearMsg") + label + tr(lang, "confirm.clearMsg2"))) return;
-				fetch(CLEAR_URL, {
+				apiFetch(CLEAR_URL, {
 					method: "POST",
-					headers: authHeaders({ "content-type": "application/json" }),
+					timeoutMs: 15000,
+					headers: { "content-type": "application/json" },
 					body: JSON.stringify(all ? { all: true } : { plugins: keys }),
 				})
 					.then(function (r) { return r.json(); })

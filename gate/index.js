@@ -25,7 +25,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync, realpathSync, rmSync, openSync, closeSync, constants as fsConstants } from 'node:fs';
 import { join, dirname, relative, basename, resolve as resolvePath, sep as pathSep } from 'node:path';
-import { homedir } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
@@ -214,6 +214,24 @@ const AUDIT_BASELINE = (() => {
   }
 })();
 
+/**
+ * Current Windows account name for the token-file ACL grant. Source is
+ * os.userInfo() — the OS-level account, NOT process.env, which a hostile
+ * environment could spoof — and the name is validated against a conservative
+ * charset so it can only ever be a plain account principal in the icacls
+ * argv: no option syntax, no separators, no extra arguments. Returns null
+ * when unavailable/invalid, in which case ACL hardening is skipped.
+ */
+function currentUserName() {
+  try {
+    const u = userInfo().username;
+    if (typeof u === 'string' && /^[\w .@\\-]{1,64}$/.test(u)) return u;
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
 export function apply(ctx, config = {}) {
   const dshHome = config.dshHome ?? join(homedir(), '.dsh');
   const cfg = {
@@ -253,6 +271,10 @@ export function apply(ctx, config = {}) {
     // and redact inline secret values before the content reaches the provider.
     harvestExcludePatterns: config.harvestExcludePatterns ?? SECRET_FILE_PATTERNS,
     redactSecrets: config.redactSecrets !== false,
+    // Windows token-file ACL hardening via a fixed System32 icacls path
+    // (best-effort, after write). Set false to skip the external process
+    // launch entirely, e.g. in hardened environments that forbid exec.
+    winTokenAcl: config.winTokenAcl !== false,
     // Rate limit for unauthenticated localhost HTTP triggers (POST /scan).
     scanRateLimit: config.scanRateLimit ?? 10,
     scanRateWindowMs: config.scanRateWindowMs ?? 10000,
@@ -353,16 +375,21 @@ export function apply(ctx, config = {}) {
       // Windows machine another local user could otherwise read the token).
       // Best-effort: if icacls is unavailable or fails, the gate still works
       // (the token remains protected by the user-profile default ACL).
-      if (typeof process !== 'undefined' && process.platform === 'win32') {
+      if (cfg.winTokenAcl && typeof process !== 'undefined' && process.platform === 'win32') {
         try {
           // SECURITY NOTE (static scanners flag this): execFileSync does NOT
           // invoke a shell — the command and every argument are passed as an
-          // argv array (no string parsing, no injection surface). `icacls` is
-          // a fixed Windows binary name; tokenPath and USERNAME are the only
-          // dynamic values and cannot alter the command line structure.
-          const user = process.env.USERNAME;
-          if (user) {
-            execFileSync('icacls', [tokenPath, '/inheritance:r', '/grant:r', user + ':(R)'], { stdio: 'ignore', timeout: 10000 });
+          // argv array (no string parsing, no injection surface). The binary
+          // is a FIXED absolute System32 path (never a PATH/cwd lookup), so
+          // a tampered environment cannot shadow it with a different
+          // executable. tokenPath is the state-dir path built above and the
+          // user name is the os.userInfo()-derived, validated account name —
+          // the only dynamic values, and neither can alter the command line
+          // structure. Set config `winTokenAcl: false` to skip entirely.
+          const ICACLS = join('C:', pathSep, 'Windows', pathSep, 'System32', 'icacls.exe');
+          const user = currentUserName();
+          if (user !== null && existsSync(ICACLS)) {
+            execFileSync(ICACLS, [tokenPath, '/inheritance:r', '/grant:r', user + ':(R)'], { stdio: 'ignore', timeout: 10000 });
           }
         } catch {
           /* best-effort */
@@ -1401,7 +1428,11 @@ export function apply(ctx, config = {}) {
     hits.push(now);
     return true;
   }
-  /** Host allowlist (defeats DNS rebinding) + same-origin guard (CSRF). */
+  /** Host allowlist (defeats DNS rebinding) + same-origin guard (CSRF).
+   *  Static scanners flag the IP literals below as hardcoded addresses —
+   *  they are the loopback allowlist itself and MUST stay literal: only
+   *  loopback names may ever be accepted, so a rebinding attacker cannot
+   *  point their domain at the gate and pass the Host check. */
   const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1']);
   const hostnameOf = (h) => {
     const s = String(h || '');
@@ -1411,9 +1442,32 @@ export function apply(ctx, config = {}) {
     }
     return s.split(':')[0];
   };
+  /** True when the TCP peer address is loopback. The Host header is
+   *  client-controlled text, so it alone cannot prove locality; the socket
+   *  remote address is the server's own view of where the connection came
+   *  from. Covers IPv4 (127/8), IPv6 (::1) and the IPv4-mapped IPv6 form
+   *  Node exposes when a dual-stack listener receives an IPv4 connection. */
+  const isLoopbackPeer = (addr) => {
+    const s = String(addr || '');
+    if (s === '::1') return true;
+    let ip = s;
+    if (s.startsWith('::ffff:')) ip = s.slice(7); // IPv4-mapped IPv6
+    if (!ip.startsWith('127.')) return false;
+    const parts = ip.split('.');
+    if (parts.length !== 4) return false;
+    for (const part of parts) {
+      if (part.length === 0 || part.length > 3) return false;
+      for (const c of part) if (c < '0' || c > '9') return false;
+      if (Number(part) > 255) return false;
+    }
+    return true; // any 127/8 address, plain or IPv4-mapped
+  };
   const sameHost = (req) => {
     const host = hostnameOf(req.headers && req.headers.host);
     if (!LOCAL_HOSTNAMES.has(host)) return false; // DNS-rebinding / non-local Host -> reject
+    // Defense-in-depth: even with a forged loopback Host header, a request
+    // whose TCP peer is not a loopback interface is rejected outright.
+    if (!isLoopbackPeer(req.socket && req.socket.remoteAddress)) return false;
     const origin = req.headers && req.headers.origin;
     if (!origin) return true; // no Origin (curl/tooling) -> allowed, rate-limited elsewhere
     try {
